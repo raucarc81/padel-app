@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="theme-color" content="#0f2419">
+  <title>🎾 La Nave Padel</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="La Nave Padel">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Firebase Realtime Database -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <!-- React 18 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+
+  <!-- Excel export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <!-- Babel (transpila JSX en el navegador) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; overflow-x: hidden; }
+    body { background: #0f2419; font-family: 'DM Sans', sans-serif; overscroll-behavior-y: contain; }
+    input, select, button, textarea { font-family: 'DM Sans', sans-serif; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: #2d5a3d; border-radius: 4px; }
+    .card { background: #fff; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,.12); padding: 16px; margin-bottom: 12px; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
+    .pulse { animation: pulse 1.4s ease-in-out infinite; }
+    .fade-in { animation: fadeIn .25s ease; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- =============================================================
+  ⚠️  PASO 1: REEMPLAZA ESTOS VALORES CON LOS DE TU FIREBASE
+  Ver README.md para instrucciones completas paso a paso
+  ============================================================= -->
+<script>
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyDPL-Sx7fNhaYpcKP0GKywUd5JVKQVGMRQ",
+  authDomain:        "veteranos-padel-ff882.firebaseapp.com",
+  databaseURL:       "https://veteranos-padel-ff882-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "veteranos-padel-ff882",
+  storageBucket:     "veteranos-padel-ff882.firebasestorage.app",
+  messagingSenderId: "232155474787",
+  appId:             "1:232155474787:web:044da06172041e88794156"
+};
+
+try {
+  if (!FIREBASE_CONFIG.apiKey.startsWith("TU_")) {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    window._db = firebase.database();
+    window._fbReady = true;
+    console.log("✅ Firebase activo — sync en tiempo real entre capitanes");
+  } else {
+    window._fbReady = false;
+    console.warn("⚠️ Firebase sin configurar. Usando localStorage (solo offline).");
+  }
+} catch(e) {
+  window._fbReady = false;
+  console.error("Firebase error:", e.message);
+}
+</script>
+
+<script type="text/babel" data-presets="react,env">
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+// ================================================================
+// CONSTANTES
+// ================================================================
+const CLUB_DEFAULT = "LA NAVE PADEL CENTER FÖCH CLUB";
+const DB_KEY = "padelApp";
+const genId = () => Math.random().toString(36).slice(2,9) + Date.now().toString(36);
+const FMP_TEAMS = "https://www.fmpadel.com/ligas_verEquipos.aspx?idCategoria=135&idEquipo=6295";
+const FMP_CLAS  = "https://www.fmpadel.com/ligas_clasificacion.aspx?idCategoria=135";
+const PROXY     = "https://api.allorigins.win/raw?url=";
+const SANC_CYCLE = { null: "yellow1", yellow1: "yellow2", yellow2: "red", red: null };
+
+const RIVALS = [
+  "RACE A","CLUB DE CAMPO VILLA DE MADRID A","NAUTALIA VIP PADEL",
+  "GET INDOOR PADEL A","CLUB LAS ENCINAS DE BOADILLA A",
+  "AMIGOS DE FUENCARRAL PADEL HANGAR ALCOBENDAS A","MAKINGPADEL A",
+  "VETERANOS CLUB MIRASIERRA A","BAMVOLEA INDOOR PADEL TRAINING B",
+  "CDE PYT VILLALBA A","SET POINT PADEL INDOOR A"
+];
+
+// Posiciones asignadas alternando — corríjelas en la pestaña Jugadores
+const INIT_PLAYERS = [
+  {id:"p1", name:"Fabio Antonio Garcia Ortiz",   points:840, position:"reves",   licencia:true, sanction:null},
+  {id:"p2", name:"David Pelaez Garcia",           points:780, position:"derecha", licencia:true, sanction:null},
+  {id:"p3", name:"Raul Camison Velayos",          points:720, position:"reves",   licencia:true, sanction:null},
+  {id:"p4", name:"David Villarroya Meng",         points:540, position:"derecha", licencia:true, sanction:null},
+  {id:"p5", name:"Fco. Javier Alzaga Pena",       points:540, position:"reves",   licencia:true, sanction:null},
+  {id:"p6", name:"Pablo Bozal Callejo",           points:540, position:"derecha", licencia:true, sanction:null},
+  {id:"p7", name:"Alejandro Almendres Cortazar",  points:420, position:"reves",   licencia:true, sanction:null},
+  {id:"p8", name:"Ramon Miguez Martinez",         points:360, position:"derecha", licencia:true, sanction:null},
+  {id:"p9", name:"Eduardo Moreira Martin-Penato", points:300, position:"reves",   licencia:true, sanction:null},
+  {id:"p10",name:"Raul Hernandez Pascual-Sanz",   points:240, position:"derecha", licencia:true, sanction:null},
+  {id:"p11",name:"Santiago Bedoya Santacreu",     points:240, position:"reves",   licencia:true, sanction:null},
+  {id:"p12",name:"Fernando Vazquez Jimenez",      points:240, position:"derecha", licencia:true, sanction:null},
+  {id:"p13",name:"Ernesto Ojeda Sinquemani",      points:240, position:"reves",   licencia:true, sanction:null},
+  {id:"p14",name:"Enrique Diez Ramirez",          points:120, position:"derecha", licencia:true, sanction:null},
+  {id:"p15",name:"Hernan Fernandez Campos",       points:120, position:"reves",   licencia:true, sanction:null},
+  {id:"p16",name:"Carlos Torija Silva",           points:120, position:"derecha", licencia:true, sanction:null},
+  {id:"p17",name:"Javier Perez Manzanares",       points:120, position:"reves",   licencia:true, sanction:null},
+  {id:"p18",name:"Daniel Tejedor Mazo",           points:60,  position:"derecha", licencia:true, sanction:null},
+  {id:"p19",name:"Santiago Almendres Cortazar",   points:0,   position:"reves",   licencia:true, sanction:null},
+  {id:"p20",name:"Sergio Martinez Calvin",        points:0,   position:"derecha", licencia:true, sanction:null},
+  {id:"p21",name:"David Gonzalez Terrero",        points:0,   position:"reves",   licencia:true, sanction:null},
+  {id:"p22",name:"Javier Roa Aguirre",            points:0,   position:"derecha", licencia:true, sanction:null},
+];
+
+// ================================================================
+// THEME
+// ================================================================
+const G9="#0a1f10",G8="#1a3d22",G7="#1e4d29",G6="#2d6e3a",G5="#3d8f4c",G4="#5aad68",G3="#7ec98a",G1="#e4f5e7";
+const BLUE="#1a56a0",BLUEL="#e8f0fd",RED="#c0392b",REDL="#fdecea",AMBER="#b45309",AMBERL="#fef3c7",GREY="#6b7280",DARK="#111827";
+
+const btnS = (bg=G6, c="#fff", sz=14) => ({
+  background: bg, color: c, border: "none", borderRadius: 50,
+  padding: `${sz===12?8:10}px ${sz===12?14:20}px`,
+  fontWeight: 700, fontSize: sz, cursor: "pointer",
+  fontFamily: "'Outfit',sans-serif",
+  boxShadow: "0 2px 8px rgba(0,0,0,.18)", letterSpacing: .3
+});
+const inpS = {
+  width:"100%", border:"1.5px solid #d1fae5", borderRadius:12,
+  padding:"11px 14px", fontSize:14, outline:"none", background:"#f0fdf4", color:DARK
+};
+const selS = { ...inpS, appearance:"none" };
+const lblS = { fontSize:11, fontWeight:700, color:GREY, textTransform:"uppercase", letterSpacing:.8, marginBottom:5, display:"block" };
+const chipS = (c, bg) => ({ background:bg||c+"18", color:c, borderRadius:50, padding:"3px 10px", fontSize:11, fontWeight:700, display:"inline-block", whiteSpace:"nowrap" });
+
+// ================================================================
+// MICRO-COMPONENTS
+// ================================================================
+const Row = ({children, style={}}) => (
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",...style}}>{children}</div>
+);
+const Fld = ({label, children, mb=14}) => (
+  <div style={{marginBottom:mb}}><label style={lblS}>{label}</label>{children}</div>
+);
+const Empty = ({ico, text, sub=""}) => (
+  <div style={{textAlign:"center",padding:"48px 24px",color:GREY}}>
+    <div style={{fontSize:52,marginBottom:10}}>{ico}</div>
+    <div style={{fontSize:16,fontWeight:700,color:DARK}}>{text}</div>
+    {sub && <div style={{fontSize:12,marginTop:5}}>{sub}</div>}
+  </div>
+);
+const STitle = ({children, action}) => (
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:8,marginBottom:14}}>
+    <div style={{fontFamily:"'Outfit',sans-serif",fontSize:22,fontWeight:800,color:"#fff",letterSpacing:-.3}}>{children}</div>
+    {action}
+  </div>
+);
+const SancBadge = ({s}) => {
+  if (!s) return null;
+  const map = {yellow1:"🟡 1ª Amarilla", yellow2:"🟡🟡 → Roja", red:"🟥 Expulsión"};
+  const c = s==="red" ? RED : AMBER;
+  return <span style={chipS(c)}>{map[s]}</span>;
+};
+const LicBadge = ({ok}) => (
+  <span style={{background:ok?"#dcfce7":"#fee2e2",color:ok?"#166534":"#991b1b",borderRadius:50,padding:"2px 9px",fontSize:11,fontWeight:700}}>
+    {ok ? "✓ Lic" : "✗ Lic"}
+  </span>
+);
+const shortName = n => { const p = n.split(" "); return p.length >= 2 ? `${p[0]} ${p[1]}` : p[0]; };
+
+// ================================================================
+// HELPERS
+// ================================================================
+const pairSum = (pair, players) => {
+  const d = players.find(p => p.id === pair.derechaId);
+  const r = players.find(p => p.id === pair.revesId);
+  return (d?.points ?? 0) + (r?.points ?? 0);
+};
+
+const checkPairs = (pairs, players) => {
+  const errs = [];
+  [1, 2].forEach(t => {
+    const tp = pairs.filter(p => p.turn === t);
+    for (let i = 0; i < tp.length - 1; i++) {
+      if (!tp[i].derechaId || !tp[i].revesId || !tp[i+1].derechaId || !tp[i+1].revesId) continue;
+      const s1 = pairSum(tp[i], players), s2 = pairSum(tp[i+1], players);
+      if (s1 < s2) errs.push(`Turno ${t} · Pareja ${tp[i].pairNum} (${s1}pts) < Pareja ${tp[i+1].pairNum} (${s2}pts)`);
+    }
+  });
+  return errs;
+};
+
+const mkPairs = () => [
+  {turn:1,pairNum:1,derechaId:null,revesId:null},
+  {turn:1,pairNum:2,derechaId:null,revesId:null},
+  {turn:1,pairNum:3,derechaId:null,revesId:null},
+  {turn:2,pairNum:1,derechaId:null,revesId:null},
+  {turn:2,pairNum:2,derechaId:null,revesId:null},
+];
+
+// ================================================================
+// STORAGE — Firebase (sync tiempo real) o localStorage (offline)
+// ================================================================
+const Storage = {
+  listen(cb) {
+    if (window._fbReady && window._db) {
+      window._db.ref(DB_KEY).on("value", snap => cb(snap.val()));
+      return () => window._db.ref(DB_KEY).off("value");
+    } else {
+      try { cb(JSON.parse(localStorage.getItem(DB_KEY) || "null")); } catch { cb(null); }
+      return () => {};
+    }
+  },
+  save(data) {
+    if (window._fbReady && window._db) {
+      clearTimeout(window._saveTimer);
+      window._saveTimer = setTimeout(() => {
+        window._db.ref(DB_KEY).set(data).catch(e => console.error("Firebase save:", e));
+      }, 700);
+    } else {
+      try { localStorage.setItem(DB_KEY, JSON.stringify(data)); } catch(e) {}
+    }
+  }
+};
+
+// ================================================================
+// ROOT APP
+// ================================================================
+function App() {
+  const [tab, setTab]       = useState("conv");
+  const [club, setClub]     = useState(CLUB_DEFAULT);
+  const [players, setPlayers] = useState([]);
+  const [matches, setMatches] = useState([]);
+  const [synced, setSynced] = useState(false);
+  const [ready, setReady]   = useState(false);
+  const stateRef = useRef({ club: CLUB_DEFAULT, players: [], matches: [] });
+
+  // Listener Firebase / localStorage
+  useEffect(() => {
+    const unsub = Storage.listen(data => {
+      if (data) {
+        const now = new Date();
+        const storedYear = data.licYear || now.getFullYear();
+        let ps = (data.players || INIT_PLAYERS).map(p => ({ licencia:true, sanction:null, ...p }));
+        // Auto-reset licencias el 1 de enero de año nuevo
+        if (now.getFullYear() > storedYear && now.getMonth() === 0) {
+          ps = ps.map(p => ({ ...p, licencia: false }));
+        }
+        const c = data.club || CLUB_DEFAULT, m = data.matches || [];
+        setClub(c); setPlayers(ps); setMatches(m);
+        stateRef.current = { club:c, players:ps, matches:m };
+        setSynced(window._fbReady === true);
+      } else {
+        setPlayers(INIT_PLAYERS);
+        stateRef.current = { club:CLUB_DEFAULT, players:INIT_PLAYERS, matches:[] };
+      }
+      setReady(true);
+    });
+    return unsub;
+  }, []);
+
+  const persist = useCallback((overrides = {}) => {
+    const data = { ...stateRef.current, ...overrides, licYear: new Date().getFullYear() };
+    stateRef.current = data;
+    Storage.save(data);
+  }, []);
+
+  const setP = p  => { setPlayers(p);  persist({ players: p  }); };
+  const setM = m  => { setMatches(m);  persist({ matches: m  }); };
+  const setC = c  => { setClub(c);     persist({ club:    c  }); };
+
+  if (!ready) return (
+    <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0f2419"}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:52,marginBottom:14}}>🎾</div>
+        <div style={{color:G3,fontFamily:"'Outfit',sans-serif",fontWeight:700,fontSize:18}} className="pulse">Cargando...</div>
+        {!window._fbReady && <div style={{color:GREY,fontSize:11,marginTop:8}}>Modo offline · Configura Firebase para sync entre capitanes</div>}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{background:"#0f2419",minHeight:"100vh",fontFamily:"'DM Sans',sans-serif"}}>
+      <AppHeader club={club} onSave={setC} synced={synced} />
+      <div style={{padding:"12px 12px 90px"}}>
+        {tab === "conv"    && <ConvTab    club={club} players={players} matches={matches} onSave={setM} />}
+        {tab === "players" && <PlayersTab players={players} onUpdate={setP} />}
+        {tab === "stats"   && <StatsTab   players={players} matches={matches} />}
+        {tab === "liga"    && <LigaTab    players={players} onUpdate={setP} />}
+      </div>
+      <BottomNav tab={tab} onChange={setTab} />
+    </div>
+  );
+}
+
+// ================================================================
+// HEADER
+// ================================================================
+function AppHeader({ club, onSave, synced }) {
+  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState(club);
+  return (
+    <div style={{background:`linear-gradient(135deg,${G9},${G8})`,padding:"14px 16px 12px",boxShadow:"0 4px 20px rgba(0,0,0,.4)"}}>
+      {editing ? (
+        <div style={{display:"flex",gap:8}}>
+          <input value={v} onChange={e => setV(e.target.value)} autoFocus
+            style={{...inpS,flex:1,padding:"8px 12px",fontSize:13,background:"rgba(255,255,255,.12)",border:"1.5px solid rgba(255,255,255,.3)",color:"#fff"}} />
+          <button onClick={() => { onSave(v); setEditing(false); }} style={{...btnS(AMBER),padding:"8px 14px"}}>✓</button>
+          <button onClick={() => { setV(club); setEditing(false); }}
+            style={{background:"rgba(255,255,255,.15)",border:"none",borderRadius:50,padding:"8px 12px",color:"#fff",cursor:"pointer"}}>✕</button>
+        </div>
+      ) : (
+        <Row>
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:2}}>
+              <div style={{fontSize:10,color:"rgba(255,255,255,.5)",letterSpacing:1.3,fontWeight:700}}>🏆 CLUB</div>
+              <div style={{fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:50,
+                background:synced?"rgba(61,143,76,.25)":"rgba(255,255,255,.08)",
+                color:synced?G3:"rgba(255,255,255,.35)",
+                border:`1px solid ${synced?G4+"44":"rgba(255,255,255,.12)"}`}}>
+                {synced ? "● SYNC EN VIVO" : "○ OFFLINE"}
+              </div>
+            </div>
+            <div style={{fontSize:14,fontWeight:700,color:"#fff",fontFamily:"'Outfit',sans-serif"}}>{club}</div>
+          </div>
+          <button onClick={() => { setV(club); setEditing(true); }}
+            style={{background:"rgba(255,255,255,.12)",border:"1px solid rgba(255,255,255,.2)",borderRadius:12,padding:"7px 10px",color:"rgba(255,255,255,.8)",cursor:"pointer",fontSize:15}}>✏️</button>
+        </Row>
+      )}
+    </div>
+  );
+}
+
+// ================================================================
+// BOTTOM NAV
+// ================================================================
+function BottomNav({ tab, onChange }) {
+  return (
+    <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#fff",borderTop:"1px solid #e5e7eb",display:"flex",zIndex:999,boxShadow:"0 -4px 20px rgba(0,0,0,.10)"}}>
+      {[["conv","📋","Convocar"],["players","👤","Jugadores"],["stats","📊","Stats"],["liga","🏆","Liga"]].map(([id,ic,lb]) => (
+        <button key={id} onClick={() => onChange(id)}
+          style={{flex:1,border:"none",background:"none",padding:"8px 0 6px",cursor:"pointer",
+            color:tab===id?G6:"#bdbdbd", borderTop:`3px solid ${tab===id?G6:"transparent"}`,transition:"all .2s",fontFamily:"'DM Sans',sans-serif"}}>
+          <div style={{fontSize:20}}>{ic}</div>
+          <div style={{fontSize:9,fontWeight:700,marginTop:2,letterSpacing:.3}}>{lb}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ================================================================
+// CONV TAB
+// ================================================================
+function ConvTab({ club, players, matches, onSave }) {
+  const [view, setView] = useState("list");
+  const [cur, setCur]   = useState(null);
+
+  const create = () => {
+    setCur({
+      id:genId(), date:new Date().toISOString().slice(0,10),
+      team1:club, team2:"", isHome:true, location:"",
+      calledDerecha:[], calledReves:[],
+      pairs:mkPairs(), result:null, status:"setup"
+    });
+    setView("wizard");
+  };
+
+  const saveM = m => {
+    const list = matches.some(x => x.id === m.id) ? matches.map(x => x.id===m.id?m:x) : [...matches, m];
+    onSave(list); setCur(m);
+  };
+
+  const delM = id => {
+    if (confirm("¿Eliminar esta convocatoria?")) { onSave(matches.filter(m => m.id !== id)); setView("list"); setCur(null); }
+  };
+
+  if (view === "wizard") return <Wizard match={cur} players={players} club={club} onSave={saveM} onDone={() => setView("list")} />;
+  if (view === "detail") return <Detail match={cur} players={players} onUpdate={saveM} onBack={() => setView("list")} onDelete={() => delM(cur.id)} />;
+
+  return (
+    <div>
+      <STitle action={<button onClick={create} style={btnS()}>+ Nueva</button>}>Convocatorias</STitle>
+      {matches.length === 0
+        ? <Empty ico="📋" text="Sin convocatorias" sub="Crea la primera convocatoria" />
+        : [...matches].reverse().map(m => {
+            const rc = m.result==="win" ? G5 : m.result==="loss" ? RED : GREY;
+            return (
+              <div key={m.id} className="card fade-in"
+                onClick={() => { setCur(m); setView(m.status==="complete"?"detail":"wizard"); }}
+                style={{cursor:"pointer",borderLeft:`5px solid ${rc}`,paddingLeft:14}}>
+                <Row>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:11,color:GREY,fontWeight:600,marginBottom:2}}>{m.date} · {m.isHome?"🏠 Casa":"✈️ Visitante"}</div>
+                    <div style={{fontWeight:700,color:DARK,fontSize:15,fontFamily:"'Outfit',sans-serif"}}>
+                      {m.isHome ? `vs ${m.team2||"—"}` : `@ ${m.team1||"—"}`}
+                    </div>
+                    <div style={{fontSize:12,color:GREY,marginTop:2}}>📍 {m.location||"—"}</div>
+                  </div>
+                  <span style={chipS(rc)}>{m.result==="win"?"✅ GANADO":m.result==="loss"?"❌ PERDIDO":"⏳ Pendiente"}</span>
+                </Row>
+                <Row style={{marginTop:8}}>
+                  <div style={{fontSize:11,color:GREY}}>
+                    {m.calledDerecha.length + m.calledReves.length} conv · {m.pairs.filter(p=>p.derechaId&&p.revesId).length*2} titulares
+                  </div>
+                  {m.status !== "complete" && <span style={chipS(AMBER,AMBERL)}>⚠️ En progreso</span>}
+                </Row>
+              </div>
+            );
+          })}
+    </div>
+  );
+}
+
+// ================================================================
+// WIZARD
+// ================================================================
+function Wizard({ match, players, club, onSave, onDone }) {
+  const mRef = useRef({ ...match });
+  const [m, setM]   = useState({ ...match });
+  const [step, setStep] = useState(match.status==="setup" ? 1 : match.status==="called" ? 2 : 3);
+
+  const upd = ch => {
+    const next = { ...mRef.current, ...ch };
+    mRef.current = next;
+    setM(next);
+    onSave(next);
+  };
+
+  const STEPS = ["", "Datos del partido", "Llamada", "Parejas"];
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,paddingTop:8}}>
+        <button onClick={onDone} style={{background:"none",border:"none",cursor:"pointer",fontSize:26,color:G3,lineHeight:1}}>←</button>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:"'Outfit',sans-serif",fontWeight:800,color:"#fff",fontSize:18}}>{STEPS[step]}</div>
+          <div style={{display:"flex",gap:5,marginTop:7}}>
+            {[1,2,3].map(s => <div key={s} style={{flex:1,height:4,borderRadius:4,background:step>=s?G4:"rgba(255,255,255,.12)",transition:"background .3s"}} />)}
+          </div>
+        </div>
+      </div>
+      {step === 1 && <StepSetup m={m} club={club} onChange={upd} onNext={() => { upd({status:"called"}); setStep(2); }} />}
+      {step === 2 && <StepCalled m={m} players={players} onChange={upd} onNext={() => setStep(3)} onBack={() => setStep(1)} />}
+      {step === 3 && <StepPairs m={m} players={players} onChange={upd} onFinish={() => { upd({status:"complete"}); setTimeout(onDone, 150); }} onBack={() => setStep(2)} />}
+    </div>
+  );
+}
+
+// ---- STEP 1: SETUP ----
+function StepSetup({ m, club, onChange, onNext }) {
+  const [hint, setHint] = useState([]);
+  const ok = m.team2.trim() && m.location.trim() && m.date;
+
+  const handleTeam2 = v => {
+    onChange({ team2: v });
+    setHint(v ? RIVALS.filter(r => r.toLowerCase().includes(v.toLowerCase()) && r.toLowerCase() !== v.toLowerCase()).slice(0,3) : []);
+  };
+
+  return (
+    <div className="card">
+      <Fld label="Fecha">
+        <input type="date" value={m.date} onChange={e => onChange({date:e.target.value})} style={inpS} />
+      </Fld>
+      <Fld label="Equipo 1 (tu club = jugamos en casa)">
+        <input value={m.team1} onChange={e => {
+          const v = e.target.value;
+          onChange({ team1:v, isHome: v.trim().toUpperCase()===club.trim().toUpperCase() });
+        }} style={inpS} />
+        <div style={{fontSize:12,marginTop:5,fontWeight:700,color:m.isHome?G6:AMBER}}>
+          {m.isHome ? "🏠 Jugamos en casa" : "✈️ Jugamos de visitante"}
+        </div>
+      </Fld>
+      <Fld label="Equipo rival">
+        <input value={m.team2} onChange={e => handleTeam2(e.target.value)} style={inpS} placeholder="Escribe para buscar rival..." />
+        {hint.length > 0 && (
+          <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:5}}>
+            {hint.map(r => (
+              <button key={r} onClick={() => { onChange({team2:r}); setHint([]); }}
+                style={{...btnS(G1,G7,11),boxShadow:"none",borderRadius:8}}>{r}</button>
+            ))}
+          </div>
+        )}
+      </Fld>
+      <Fld label="Ubicacion">
+        <input value={m.location} onChange={e => onChange({location:e.target.value})} style={inpS} placeholder="Club, pista, direccion..." />
+      </Fld>
+      <button onClick={onNext} disabled={!ok} style={{...btnS(ok?G6:"#9ca3af"),width:"100%",padding:"13px",fontSize:15}}>
+        Siguiente →
+      </button>
+    </div>
+  );
+}
+
+// ---- STEP 2: LLAMADA — POSICION LIBRE ----
+function StepCalled({ m, players, onChange, onNext, onBack }) {
+  const sorted = [...players].sort((a,b) => b.points - a.points);
+  const allCalled = [...m.calledDerecha, ...m.calledReves];
+  const available = sorted.filter(p => !allCalled.includes(p.id));
+
+  const addTo = (id, side) => {
+    if (side === "d") onChange({ calledDerecha: [...m.calledDerecha, id] });
+    else              onChange({ calledReves:   [...m.calledReves,   id] });
+  };
+  const remFrom = (id, side) => {
+    if (side === "d") onChange({ calledDerecha: m.calledDerecha.filter(x => x!==id) });
+    else              onChange({ calledReves:   m.calledReves.filter(x => x!==id) });
+  };
+
+  const Col = ({ side }) => {
+    const ids  = side==="d" ? m.calledDerecha : m.calledReves;
+    const list = ids.map(id => players.find(p => p.id===id)).filter(Boolean).sort((a,b) => b.points-a.points);
+    const color  = side==="d" ? G5 : BLUE;
+    const colorL = side==="d" ? "#e6f4ea" : BLUEL;
+    return (
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:700,color,fontSize:13,marginBottom:8,textAlign:"center",padding:"5px 4px",background:colorL,borderRadius:8}}>
+          {side==="d" ? "🟢 Col. Derecha" : "🔵 Col. Revés"}
+        </div>
+        {available.length > 0 && (
+          <select defaultValue="" onChange={e => { if(e.target.value){ addTo(e.target.value, side); e.target.value=""; } }}
+            style={{...selS,padding:"8px",fontSize:12,marginBottom:8,background:colorL,border:`1.5px solid ${color}40`}}>
+            <option value="" disabled>+ Añadir jugador</option>
+            {available.map(p => (
+              <option key={p.id} value={p.id}>
+                {shortName(p.name)} ({p.points}pts · {p.position==="derecha"?"hab.D":"hab.R"})
+              </option>
+            ))}
+          </select>
+        )}
+        {list.length === 0
+          ? <div style={{fontSize:12,color:GREY,textAlign:"center",padding:"12px 0"}}>—</div>
+          : list.map(p => (
+            <div key={p.id} style={{background:colorL,border:`1px solid ${color}25`,borderRadius:10,padding:"7px 8px",marginBottom:4,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:DARK}}>{shortName(p.name)}</div>
+                <div style={{fontSize:11,color,fontWeight:700}}>{p.points}pts <span style={{color:GREY,fontWeight:400}}>hab.{p.position==="derecha"?"D":"R"}</span></div>
+              </div>
+              <button onClick={() => remFrom(p.id, side)} style={{background:"none",border:"none",color:RED,cursor:"pointer",fontSize:17,lineHeight:1}}>✕</button>
+            </div>
+          ))}
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div style={{background:`linear-gradient(135deg,${G8},${G7})`,borderRadius:16,padding:"10px 16px",marginBottom:10,textAlign:"center",color:"rgba(255,255,255,.7)",fontSize:13}}>
+        <b style={{color:"#fff"}}>{allCalled.length}</b> convocados ·
+        <b style={{color:"#fff"}}> {m.calledDerecha.length}</b> col.derecha ·
+        <b style={{color:"#fff"}}> {m.calledReves.length}</b> col.revés
+      </div>
+      <div className="card">
+        <div style={{display:"flex",gap:10}}>
+          <Col side="d" />
+          <div style={{width:1,background:"#e5e7eb",flexShrink:0}} />
+          <Col side="r" />
+        </div>
+      </div>
+      <div style={{fontSize:11,color:GREY,textAlign:"center",marginBottom:10}}>
+        Posicion libre — añade a cada jugador donde juegue este partido
+      </div>
+      <div style={{display:"flex",gap:10}}>
+        <button onClick={onBack}  style={{...btnS("#e5e7eb","#374151"),flex:1}}>← Atras</button>
+        <button onClick={onNext}  style={{...btnS(),flex:2}}>Siguiente →</button>
+      </div>
+    </div>
+  );
+}
+
+// ---- STEP 3: PAREJAS ----
+function StepPairs({ m, players, onChange, onFinish, onBack }) {
+  const errs   = checkPairs(m.pairs, players);
+  const calledD = m.calledDerecha.map(id => players.find(p=>p.id===id)).filter(Boolean).sort((a,b)=>b.points-a.points);
+  const calledR = m.calledReves.map(id => players.find(p=>p.id===id)).filter(Boolean).sort((a,b)=>b.points-a.points);
+  const usedD  = m.pairs.map(p=>p.derechaId).filter(Boolean);
+  const usedR  = m.pairs.map(p=>p.revesId).filter(Boolean);
+
+  const setPF = (idx, field, val) => {
+    const np = m.pairs.map((p,i) => i===idx ? {...p,[field]:val||null} : p);
+    onChange({ pairs: np });
+  };
+
+  const PRow = ({ idx, label }) => {
+    const pair = m.pairs[idx];
+    const avD  = calledD.filter(p => !usedD.includes(p.id) || p.id===pair.derechaId);
+    const avR  = calledR.filter(p => !usedR.includes(p.id) || p.id===pair.revesId);
+    const sum  = pairSum(pair, players);
+    const ok   = pair.derechaId && pair.revesId;
+    return (
+      <div style={{background:"#f0fdf4",border:"1.5px solid #d1fae5",borderRadius:14,padding:"10px 12px",marginBottom:8}}>
+        <Row style={{marginBottom:8}}>
+          <div style={{fontWeight:700,fontSize:14,color:G7,fontFamily:"'Outfit',sans-serif"}}>{label}</div>
+          {ok && <span style={{...chipS(G6),fontWeight:800}}>{sum} pts</span>}
+        </Row>
+        <div style={{display:"flex",gap:8}}>
+          <select value={pair.derechaId||""} onChange={e=>setPF(idx,"derechaId",e.target.value)}
+            style={{...selS,flex:1,padding:"7px 8px",fontSize:12,background:"#e6f4ea",border:`1.5px solid ${G5}40`}}>
+            <option value="">🟢 Derecha...</option>
+            {avD.map(p=><option key={p.id} value={p.id}>{shortName(p.name)} ({p.points})</option>)}
+          </select>
+          <select value={pair.revesId||""} onChange={e=>setPF(idx,"revesId",e.target.value)}
+            style={{...selS,flex:1,padding:"7px 8px",fontSize:12,background:BLUEL,border:`1.5px solid ${BLUE}40`}}>
+            <option value="">🔵 Reves...</option>
+            {avR.map(p=><option key={p.id} value={p.id}>{shortName(p.name)} ({p.points})</option>)}
+          </select>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div className="card">
+        <div style={{fontFamily:"'Outfit',sans-serif",fontWeight:800,color:G7,fontSize:15,marginBottom:12,paddingBottom:8,borderBottom:"2px dashed #d1fae5"}}>
+          ⏰ Primer Turno — 20:00h
+        </div>
+        <PRow idx={0} label="Pareja 1" />
+        <PRow idx={1} label="Pareja 2" />
+        <PRow idx={2} label="Pareja 3" />
+      </div>
+      <div className="card">
+        <div style={{fontFamily:"'Outfit',sans-serif",fontWeight:800,color:G7,fontSize:15,marginBottom:12,paddingBottom:8,borderBottom:"2px dashed #d1fae5"}}>
+          ⏰ Segundo Turno
+        </div>
+        <PRow idx={3} label="Pareja 1" />
+        <PRow idx={4} label="Pareja 2" />
+      </div>
+      {errs.length > 0 && (
+        <div style={{background:REDL,border:`1.5px solid ${RED}30`,borderRadius:14,padding:"12px 14px",marginBottom:12}}>
+          <div style={{fontWeight:700,color:RED,fontSize:13,marginBottom:4}}>⚠️ Error en el orden de parejas:</div>
+          {errs.map((e,i) => <div key={i} style={{fontSize:12,color:RED,marginTop:3}}>• {e}</div>)}
+        </div>
+      )}
+      <div style={{display:"flex",gap:10}}>
+        <button onClick={onBack}    style={{...btnS("#e5e7eb","#374151"),flex:1}}>← Atras</button>
+        <button onClick={onFinish}  disabled={errs.length>0}
+          style={{...btnS(errs.length>0?"#9ca3af":G6),flex:2,padding:"13px",fontSize:15}}>
+          ✓ Guardar convocatoria
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---- DETALLE MATCH ----
+function Detail({ match, players, onUpdate, onBack, onDelete }) {
+  const [m, setM] = useState({ ...match });
+  const setRes = r => { const u={...m,result:r===m.result?null:r}; setM(u); onUpdate(u); };
+
+  const PSection = ({ turn, label }) => {
+    const tp = m.pairs.filter(p=>p.turn===turn);
+    if (!tp.some(p=>p.derechaId||p.revesId)) return null;
+    return (
+      <div style={{marginBottom:14}}>
+        <div style={{fontFamily:"'Outfit',sans-serif",fontWeight:800,color:G7,fontSize:14,marginBottom:8}}>⏰ {label}</div>
+        {tp.map((pair,i) => {
+          if (!pair.derechaId && !pair.revesId) return null;
+          const d = players.find(p=>p.id===pair.derechaId), r = players.find(p=>p.id===pair.revesId);
+          const sum = pairSum(pair, players);
+          return (
+            <div key={i} style={{background:"#f0fdf4",border:"1.5px solid #d1fae5",borderRadius:14,padding:10,marginBottom:6}}>
+              <Row>
+                <div style={{fontWeight:700,fontSize:13,color:G7,fontFamily:"'Outfit',sans-serif"}}>Pareja {pair.pairNum}</div>
+                {d&&r && <span style={{...chipS(G6),fontWeight:800}}>{sum}pts</span>}
+              </Row>
+              <div style={{display:"flex",gap:14,marginTop:6,flexWrap:"wrap"}}>
+                {d && <div style={{fontSize:12}}><span style={{color:G5,fontWeight:700}}>🟢 </span>{shortName(d.name)} <span style={{color:GREY}}>({d.points})</span></div>}
+                {r && <div style={{fontSize:12}}><span style={{color:BLUE,fontWeight:700}}>🔵 </span>{shortName(r.name)} <span style={{color:GREY}}>({r.points})</span></div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,paddingTop:8}}>
+        <button onClick={onBack} style={{background:"none",border:"none",cursor:"pointer",fontSize:26,color:G3,lineHeight:1}}>←</button>
+        <div style={{flex:1,fontFamily:"'Outfit',sans-serif",fontWeight:800,color:"#fff",fontSize:18}}>Convocatoria</div>
+        <button onClick={onDelete} style={{...btnS(REDL,RED,12)}}>🗑️ Borrar</button>
+      </div>
+      <div style={{background:`linear-gradient(135deg,${G8},${G7})`,borderRadius:20,boxShadow:"0 4px 20px rgba(0,0,0,.35)",padding:16,marginBottom:12,textAlign:"center"}}>
+        <div style={{fontSize:11,color:"rgba(255,255,255,.6)",fontWeight:700,letterSpacing:1,marginBottom:4}}>
+          {m.date} · {m.isHome?"🏠 EN CASA":"✈️ DE VISITANTE"}
+        </div>
+        <div style={{fontFamily:"'Outfit',sans-serif",fontSize:18,fontWeight:800,color:"#fff"}}>
+          {m.team1||"—"} <span style={{color:"rgba(255,255,255,.35)",fontWeight:400}}>vs</span> {m.team2||"—"}
+        </div>
+        <div style={{fontSize:13,color:"rgba(255,255,255,.6)",marginTop:5}}>📍 {m.location||"—"}</div>
+      </div>
+      <div className="card">
+        <div style={{fontWeight:700,color:DARK,marginBottom:10,fontSize:15,fontFamily:"'Outfit',sans-serif"}}>Resultado del partido</div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={()=>setRes("win")}  style={{...btnS(m.result==="win"?G5:"#e6f4ea",m.result==="win"?"#fff":G6),flex:1}}>✅ Ganado</button>
+          <button onClick={()=>setRes("loss")} style={{...btnS(m.result==="loss"?RED:REDL,m.result==="loss"?"#fff":RED),flex:1}}>❌ Perdido</button>
+        </div>
+      </div>
+      <div className="card">
+        <div style={{fontWeight:700,color:DARK,marginBottom:12,fontSize:15,fontFamily:"'Outfit',sans-serif"}}>Parejas</div>
+        <PSection turn={1} label="Primer Turno — 20:00h" />
+        <PSection turn={2} label="Segundo Turno" />
+      </div>
+    </div>
+  );
+}
+
+// ================================================================
+// PLAYERS TAB
+// ================================================================
+function PlayersTab({ players, onUpdate }) {
+  const [form, setForm]   = useState({ name:"", position:"derecha", points:"" });
+  const [editId, setEditId] = useState(null);
+  const [show, setShow]   = useState(false);
+  const sorted = [...players].sort((a,b) => b.points - a.points);
+
+  const saveP = () => {
+    if (!form.name.trim()) return;
+    const pts = Number(form.points) || 0;
+    onUpdate(editId
+      ? players.map(p => p.id===editId ? {...p,...form,points:pts} : p)
+      : [...players, {id:genId(),...form,points:pts,licencia:true,sanction:null}]
+    );
+    setForm({name:"",position:"derecha",points:""}); setEditId(null); setShow(false);
+  };
+  const editP    = p => { setForm({name:p.name,position:p.position,points:String(p.points)}); setEditId(p.id); setShow(true); window.scrollTo(0,0); };
+  const delP     = id => { if(confirm("¿Eliminar jugador?")) onUpdate(players.filter(p=>p.id!==id)); };
+  const togLic   = id => onUpdate(players.map(p => p.id===id ? {...p,licencia:!p.licencia} : p));
+  const cycleSanc= id => { const p=players.find(x=>x.id===id); if(!p)return; onUpdate(players.map(x=>x.id===id?{...x,sanction:SANC_CYCLE[x.sanction]}:x)); };
+  const setRed   = id => onUpdate(players.map(p => p.id===id ? {...p,sanction:"red"} : p));
+  const clearSanc= id => onUpdate(players.map(p => p.id===id ? {...p,sanction:null}  : p));
+  const allLic   = ()  => onUpdate(players.map(p => ({...p,licencia:true})));
+  const resetLic = ()  => { if(confirm("¿Resetear TODAS las licencias a NO RENOVADA?\nUsa esto el 1 de enero de cada año.")) onUpdate(players.map(p=>({...p,licencia:false}))); };
+
+  return (
+    <div>
+      <STitle action={
+        <button onClick={() => { setForm({name:"",position:"derecha",points:""}); setEditId(null); setShow(s=>!s); }} style={btnS()}>
+          + Añadir
+        </button>
+      }>Jugadores ({players.length})</STitle>
+
+      {show && (
+        <div className="card fade-in">
+          <div style={{fontFamily:"'Outfit',sans-serif",fontWeight:800,color:DARK,marginBottom:14,fontSize:16}}>
+            {editId ? "✏️ Editar jugador" : "➕ Nuevo jugador"}
+          </div>
+          <Fld label="Nombre completo">
+            <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} style={inpS} autoFocus placeholder="Nombre completo" />
+          </Fld>
+          <Fld label="Posicion habitual">
+            <div style={{display:"flex",gap:8}}>
+              {["derecha","reves"].map(pos => (
+                <button key={pos} onClick={() => setForm(f=>({...f,position:pos}))}
+                  style={{...btnS(form.position===pos?(pos==="derecha"?G5:BLUE):"#e5e7eb",form.position===pos?"#fff":"#374151"),flex:1}}>
+                  {pos==="derecha" ? "🟢 Derecha" : "🔵 Reves"}
+                </button>
+              ))}
+            </div>
+            <div style={{fontSize:11,color:GREY,marginTop:5}}>Se puede cambiar en cada convocatoria</div>
+          </Fld>
+          <Fld label="Puntuacion FMP">
+            <input type="number" value={form.points} onChange={e=>setForm(f=>({...f,points:e.target.value}))} style={inpS} min="0" placeholder="0" />
+          </Fld>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={() => {setShow(false);setEditId(null);}} style={{...btnS("#e5e7eb","#374151"),flex:1}}>Cancelar</button>
+            <button onClick={saveP} style={{...btnS(),flex:2}}>{editId?"Guardar cambios":"Añadir jugador"}</button>
+          </div>
+        </div>
+      )}
+
+      <div className="card" style={{padding:"10px 14px",marginBottom:10}}>
+        <Row>
+          <div style={{fontSize:12,color:GREY,fontWeight:600}}>
+            {players.filter(p=>p.licencia).length}/{players.length} con licencia
+            {players.filter(p=>p.sanction).length > 0 && ` · ⚠️ ${players.filter(p=>p.sanction).length} sancionados`}
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={allLic}   style={{...btnS("#dcfce7","#166534",11),boxShadow:"none"}}>✓ Lic. todas</button>
+            <button onClick={resetLic} style={{...btnS("#fee2e2","#991b1b",11),boxShadow:"none"}}>✗ Reset</button>
+          </div>
+        </Row>
+      </div>
+
+      {sorted.map((p,i) => {
+        const color  = p.position==="derecha" ? G5 : BLUE;
+        const colorL = p.position==="derecha" ? "#e6f4ea" : BLUEL;
+        return (
+          <div key={p.id} className="card fade-in" style={{padding:"12px 14px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:32,height:32,borderRadius:16,background:colorL,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color,fontSize:13,flexShrink:0,fontFamily:"'Outfit',sans-serif"}}>{i+1}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:600,fontSize:14,color:DARK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
+                <div style={{display:"flex",gap:5,alignItems:"center",marginTop:3,flexWrap:"wrap"}}>
+                  <span style={{fontSize:12,color,fontWeight:700}}>{p.points}pts</span>
+                  <span style={{fontSize:11,color:GREY}}>{p.position==="derecha"?"🟢 Hab.D":"🔵 Hab.R"}</span>
+                  <LicBadge ok={p.licencia} />
+                  {p.sanction && <SancBadge s={p.sanction} />}
+                </div>
+              </div>
+              <div style={{display:"flex",gap:4,flexShrink:0}}>
+                <button onClick={()=>togLic(p.id)}    title="Licencia" style={{background:p.licencia?"#dcfce7":"#fee2e2",border:"none",borderRadius:8,padding:"5px 7px",cursor:"pointer",fontSize:12}}>{p.licencia?"✓":"✗"}</button>
+                <button onClick={()=>cycleSanc(p.id)} title="Tarjeta amarilla (ciclar)" style={{background:p.sanction?AMBERL:"#f3f4f6",border:"none",borderRadius:8,padding:"5px 7px",cursor:"pointer",fontSize:12}}>🟡</button>
+                <button onClick={()=>setRed(p.id)}    title="Tarjeta roja directa"      style={{background:REDL,border:"none",borderRadius:8,padding:"5px 7px",cursor:"pointer",fontSize:12}}>🟥</button>
+                <button onClick={()=>editP(p)}  style={{background:"#e6f4ea",border:"none",borderRadius:8,padding:"5px 7px",cursor:"pointer",fontSize:12}}>✏️</button>
+                <button onClick={()=>delP(p.id)} style={{background:REDL,border:"none",borderRadius:8,padding:"5px 7px",cursor:"pointer",fontSize:12}}>🗑️</button>
+              </div>
+            </div>
+            {p.sanction && (
+              <div style={{marginTop:8,padding:"6px 10px",background:REDL,borderRadius:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:12,color:RED,fontWeight:600}}>Sancionado: <SancBadge s={p.sanction} /></div>
+                <button onClick={()=>clearSanc(p.id)} style={{...btnS(REDL,RED,11),boxShadow:"none",border:`1px solid ${RED}30`}}>Limpiar</button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {players.length === 0 && <Empty ico="👤" text="Sin jugadores" sub="Añade jugadores al equipo" />}
+    </div>
+  );
+}
+
+// ================================================================
+// STATS TAB
+// ================================================================
+function StatsTab({ players, matches }) {
+  const stats = useMemo(() => players.map(p => {
+    const ip  = m => m.pairs.some(pair => pair.derechaId===p.id || pair.revesId===p.id);
+    const nC  = matches.filter(m => m.calledDerecha.includes(p.id) || m.calledReves.includes(p.id)).length;
+    const nP  = matches.filter(m => ip(m)).length;
+    const nW  = matches.filter(m => m.result==="win"  && ip(m)).length;
+    const nL  = matches.filter(m => m.result==="loss" && ip(m)).length;
+    return { ...p, nC, nP, nW, nL, pPl: nC?Math.round(nP/nC*100):0, pWi: nP?Math.round(nW/nP*100):0 };
+  }).sort((a,b) => b.nP - a.nP), [players, matches]);
+
+  const exportXLSX = () => {
+    const h = ["#","Jugador","Pos. habitual","Puntos FMP","Licencia","Sancion","Convocado","Jugado","Ganado","Perdido","% Titularidad","% Efectividad"];
+    const rows = stats.map((s,i) => [
+      i+1, s.name, s.position==="derecha"?"Derecha":"Reves", s.points,
+      s.licencia?"Si":"No", s.sanction||"—",
+      s.nC, s.nP, s.nW, s.nL, s.pPl/100, s.pWi/100
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([h,...rows]);
+    ws["!cols"] = [4,26,12,12,9,12,12,10,10,10,16,16].map(w=>({wch:w}));
+    const range = XLSX.utils.decode_range(ws["!ref"]);
+    for (let r=1; r<=range.e.r; r++) ["K","L"].forEach(col => { const c=ws[col+(r+1)]; if(c) c.z="0%"; });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Estadisticas");
+    XLSX.writeFile(wb, `LaNavePadel_Stats_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+
+  const wins = matches.filter(m=>m.result==="win").length;
+  const losses = matches.filter(m=>m.result==="loss").length;
+
+  return (
+    <div>
+      <STitle action={<button onClick={exportXLSX} style={{...btnS(AMBER),fontSize:13}}>📥 Excel</button>}>Estadisticas</STitle>
+      {matches.length > 0 && (
+        <div style={{background:`linear-gradient(135deg,${G8},${G7})`,borderRadius:20,boxShadow:"0 4px 20px rgba(0,0,0,.35)",padding:16,marginBottom:12,display:"flex"}}>
+          {[["Partidos",matches.length],["Victorias",wins],["Derrotas",losses]].map(([l,v],i) => (
+            <div key={l} style={{flex:1,textAlign:"center",borderRight:i<2?"1px solid rgba(255,255,255,.15)":"none"}}>
+              <div style={{fontFamily:"'Outfit',sans-serif",fontSize:26,fontWeight:800,color:"#fff"}}>{v}</div>
+              <div style={{fontSize:9,color:"rgba(255,255,255,.55)",fontWeight:700,letterSpacing:.5}}>{l.toUpperCase()}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {stats.length === 0
+        ? <Empty ico="📊" text="Sin datos aun" sub="Completa convocatorias para ver estadisticas" />
+        : stats.map((s,i) => {
+            const pc = s.pWi>=60?G5 : s.pWi>=40?AMBER : s.pWi>0?RED : GREY;
+            const color  = s.position==="derecha" ? G5 : BLUE;
+            const colorL = s.position==="derecha" ? "#e6f4ea" : BLUEL;
+            return (
+              <div key={s.id} className="card fade-in">
+                <div style={{display:"flex",alignItems:"center",marginBottom:10}}>
+                  <div style={{width:32,height:32,borderRadius:16,background:colorL,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color,fontSize:14,marginRight:10,flexShrink:0,fontFamily:"'Outfit',sans-serif"}}>{i+1}</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:14,color:DARK,fontFamily:"'Outfit',sans-serif"}}>{s.name}</div>
+                    <div style={{fontSize:11,color:GREY}}>
+                      {s.position==="derecha"?"🟢 Derecha":"🔵 Reves"} · {s.points}pts · <LicBadge ok={s.licencia} />
+                      {s.sanction && <> · <SancBadge s={s.sanction} /></>}
+                    </div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontFamily:"'Outfit',sans-serif",fontSize:26,fontWeight:800,color:pc,lineHeight:1}}>{s.pWi}%</div>
+                    <div style={{fontSize:9,color:GREY,fontWeight:700}}>EFECT.</div>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:4}}>
+                  {[["Conv.",s.nC,BLUE],["Jugados",s.nP,G5],["Ganados",s.nW,"#059669"],["Perdidos",s.nL,RED],["% Tit.",s.pPl+"%",AMBER]].map(([l,v,c]) => (
+                    <div key={l} style={{flex:1,textAlign:"center",background:c+"14",borderRadius:10,padding:"6px 2px"}}>
+                      <div style={{fontWeight:800,fontSize:13,color:c,fontFamily:"'Outfit',sans-serif"}}>{v}</div>
+                      <div style={{fontSize:9,color:GREY,marginTop:2}}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+    </div>
+  );
+}
+
+// ================================================================
+// LIGA TAB
+// ================================================================
+function LigaTab({ players, onUpdate }) {
+  const [clasif, setClasif]     = useState(null);
+  const [loadingC, setLoadingC] = useState(false);
+  const [loadingP, setLoadingP] = useState(false);
+  const [msg, setMsg]           = useState(null);
+
+  const fetchClasif = async () => {
+    setLoadingC(true); setMsg(null);
+    try {
+      const res = await fetch(PROXY + encodeURIComponent(FMP_CLAS));
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const html = await res.text();
+      const doc  = new DOMParser().parseFromString(html, "text/html");
+      const rows = [];
+      doc.querySelectorAll("table").forEach(t => {
+        t.querySelectorAll("tr").forEach((tr,ri) => {
+          const cells = [...tr.querySelectorAll("td,th")].map(c => c.textContent.trim());
+          if (cells.length >= 3 && cells[0]) rows.push(cells);
+        });
+      });
+      if (rows.length > 0) { setClasif(rows); setMsg({type:"ok",text:`✅ ${rows.length-1} equipos cargados`}); }
+      else setMsg({type:"warn",text:"⚠️ Respuesta recibida pero sin tabla parseable. FMP puede haber cambiado su HTML."});
+    } catch(e) {
+      setMsg({type:"err",text:`❌ Error: ${e.message}. FMP probablemente bloquea CORS externo.`});
+    }
+    setLoadingC(false);
+  };
+
+  const syncPuntos = async () => {
+    setLoadingP(true); setMsg(null);
+    try {
+      const res  = await fetch(PROXY + encodeURIComponent(FMP_TEAMS));
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const html = await res.text();
+      const doc  = new DOMParser().parseFromString(html, "text/html");
+      const fmpData = [];
+      doc.querySelectorAll("table tr").forEach(tr => {
+        const tds = tr.querySelectorAll("td");
+        if (tds.length >= 6) {
+          const nombre = (tds[2]?.textContent||"").trim();
+          const ap1    = (tds[3]?.textContent||"").trim();
+          const pts    = parseInt((tds[5]?.textContent||"0")) || 0;
+          if (nombre && ap1) fmpData.push({ nombre, ap1, pts });
+        }
+      });
+      if (fmpData.length > 0) {
+        let updated = 0;
+        const np = players.map(p => {
+          const parts = p.name.split(" ");
+          const match = fmpData.find(fd =>
+            parts[0] && fd.nombre.toLowerCase().includes(parts[0].toLowerCase()) &&
+            parts[1] && fd.ap1.toLowerCase().includes(parts[1].toLowerCase())
+          );
+          if (match && match.pts !== p.points) { updated++; return { ...p, points: match.pts }; }
+          return p;
+        });
+        if (updated > 0) {
+          onUpdate(np);
+          setMsg({type:"ok",text:`✅ ${updated} jugador${updated>1?"es":""} actualizado${updated>1?"s":""} desde FMP`});
+        } else {
+          setMsg({type:"ok",text:`✅ Puntos ya al dia (${fmpData.length} registros leidos de FMP)`});
+        }
+      } else {
+        setMsg({type:"warn",text:"⚠️ Sin datos parseables. La estructura del HTML de FMP puede haber cambiado."});
+      }
+    } catch(e) {
+      setMsg({type:"err",text:`❌ Error: ${e.message}`});
+    }
+    setLoadingP(false);
+  };
+
+  return (
+    <div>
+      <STitle>Liga FMP</STitle>
+      <div className="card">
+        <div style={{fontFamily:"'Outfit',sans-serif",fontWeight:800,color:DARK,fontSize:15,marginBottom:3}}>Liga Veteranos 2025/2026</div>
+        <div style={{fontSize:12,color:GREY,marginBottom:14}}>Primera Division · Madrid</div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={fetchClasif} disabled={loadingC} style={{...btnS(G6),flex:1,opacity:loadingC?.6:1}}>
+            {loadingC ? <span className="pulse">⏳ Cargando...</span> : "🏆 Clasificacion"}
+          </button>
+          <button onClick={syncPuntos} disabled={loadingP} style={{...btnS(BLUE),flex:1,opacity:loadingP?.6:1}}>
+            {loadingP ? <span className="pulse">⏳ Sync...</span> : "🔄 Sync puntos FMP"}
+          </button>
+        </div>
+        {msg && (
+          <div style={{borderRadius:10,padding:"10px 14px",fontSize:12,fontWeight:600,marginTop:12,lineHeight:1.6,
+            background:msg.type==="ok"?"#dcfce7":msg.type==="warn"?AMBERL:REDL,
+            color:msg.type==="ok"?"#166534":msg.type==="warn"?AMBER:RED}}>
+            {msg.text}
+          </div>
+        )}
+        <div style={{marginTop:12,padding:"10px 12px",background:"#f8fafc",borderRadius:10,fontSize:11,color:GREY,lineHeight:1.7}}>
+          <b style={{color:DARK}}>ℹ️ Sobre la sincronizacion:</b> FMP puede bloquear peticiones externas (politica CORS del servidor). Si falla, actualiza puntos manualmente con ✏️ en Jugadores. Los datos actuales se cargaron de la imagen del 05/05/2026.
+        </div>
+      </div>
+
+      {clasif && clasif.length > 1 && (
+        <div className="card">
+          <div style={{fontFamily:"'Outfit',sans-serif",fontWeight:800,color:DARK,fontSize:15,marginBottom:12}}>Clasificacion en vivo</div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,tableLayout:"fixed"}}>
+              <thead>
+                <tr style={{background:G1}}>
+                  {(clasif[0]||[]).slice(0,6).map((h,i) => (
+                    <th key={i} style={{padding:"7px 6px",textAlign:"left",color:G7,fontWeight:700,borderBottom:"2px solid #d1fae5",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {clasif.slice(1,15).map((row,ri) => {
+                  const isOwn = (row||[]).some(c => (c||"").toUpperCase().includes("LA NAVE") || (c||"").toUpperCase().includes("FOCH"));
+                  return (
+                    <tr key={ri} style={{background:isOwn?"#dcfce7":ri%2===0?"#fafafa":"#fff",borderBottom:"1px solid #f3f4f6"}}>
+                      {(row||[]).slice(0,6).map((c,ci) => (
+                        <td key={ci} style={{padding:"7px 6px",color:isOwn?G7:DARK,fontWeight:isOwn?700:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c}</td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div style={{background:`linear-gradient(135deg,${G8},${G7})`,borderRadius:20,boxShadow:"0 4px 20px rgba(0,0,0,.35)",padding:16,marginBottom:12}}>
+        <div style={{fontWeight:700,color:"#fff",fontSize:13,marginBottom:8,fontFamily:"'Outfit',sans-serif"}}>🗓️ Jornada 20</div>
+        <div style={{background:"rgba(255,255,255,.1)",borderRadius:12,padding:"10px 14px"}}>
+          <div style={{fontSize:11,color:"rgba(255,255,255,.65)"}}>04/05/2026 · Primera Division</div>
+          <div style={{fontSize:16,fontWeight:800,color:"#fff",marginTop:3,fontFamily:"'Outfit',sans-serif"}}>LA NAVE vs RACE A</div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,.55)",marginTop:2}}>📍 Por confirmar</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ================================================================
+// MOUNT
+// ================================================================
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+
+// Registro del Service Worker (PWA — instalable desde Chrome/Android/iOS)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(() => console.log('✅ Service Worker registrado — app instalable'))
+      .catch(err => console.warn('SW error:', err));
+  });
+}
+</script>
+</body>
+</html>
