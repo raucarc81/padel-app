@@ -131,8 +131,23 @@ const locLink=v=>isUrl(v)?v:`https://maps.google.com/?q=${encodeURIComponent(v||
 const pairSum=(pair,players)=>{const d=players.find(p=>p.id===pair.derechaId),r=players.find(p=>p.id===pair.revesId);return(d?.points??0)+(r?.points??0);};
 const checkPairs=(pairs,players)=>{const e=[];[1,2].forEach(t=>{const tp=pairs.filter(p=>p.turn===t);for(let i=0;i<tp.length-1;i++){if(!tp[i].derechaId||!tp[i].revesId||!tp[i+1].derechaId||!tp[i+1].revesId)continue;const s1=pairSum(tp[i],players),s2=pairSum(tp[i+1],players);if(s1<s2)e.push(`Turno ${t} Pareja ${tp[i].pairNum} (${s1}pts) < Pareja ${tp[i+1].pairNum} (${s2}pts)`);}});return e;};
 const mkPairs=()=>[{turn:1,pairNum:1,derechaId:null,revesId:null,pairResult:null},{turn:1,pairNum:2,derechaId:null,revesId:null,pairResult:null},{turn:1,pairNum:3,derechaId:null,revesId:null,pairResult:null},{turn:2,pairNum:1,derechaId:null,revesId:null,pairResult:null},{turn:2,pairNum:2,derechaId:null,revesId:null,pairResult:null}];
+
+// Normaliza partidos de versiones anteriores — añade campos que faltan
+const normalizeMatch=m=>({
+  id:m.id||genId(),
+  date:m.date||"",
+  team1:m.team1||"",
+  team2:m.team2||"",
+  isHome:m.isHome!==undefined?m.isHome:true,
+  location:m.location||"",
+  calledDerecha:Array.isArray(m.calledDerecha)?m.calledDerecha:[],
+  calledReves:Array.isArray(m.calledReves)?m.calledReves:[],
+  pairs:(Array.isArray(m.pairs)?m.pairs:mkPairs()).map(p=>({turn:p.turn||1,pairNum:p.pairNum||1,derechaId:p.derechaId||null,revesId:p.revesId||null,pairResult:p.pairResult||null})),
+  result:m.result||null,
+  status:m.status||"complete",
+});
 const calcScore=m=>{
-  const active=m.pairs.filter(p=>p.derechaId&&p.revesId&&p.pairResult);
+  const active=(m.pairs||[]).filter(p=>p.derechaId&&p.revesId&&p.pairResult);
   if(!active.length)return null;
   const wins=active.filter(p=>p.pairResult==="win").length;
   const losses=active.filter(p=>p.pairResult==="loss").length;
@@ -142,8 +157,8 @@ const calcScore=m=>{
 const calcPlayerStats=(player,matches)=>{
   const base=player.baseStats||{nC:0,nP:0,nW:0,nL:0};
   const done=matches.filter(m=>m.status==="complete");
-  const isCalled=m=>m.calledDerecha.includes(player.id)||m.calledReves.includes(player.id);
-  const myPair=m=>m.pairs.find(p=>(p.derechaId===player.id||p.revesId===player.id));
+  const isCalled=m=>(m.calledDerecha||[]).includes(player.id)||(m.calledReves||[]).includes(player.id);
+  const myPair=m=>(m.pairs||[]).find(p=>(p.derechaId===player.id||p.revesId===player.id));
   const aC=done.filter(m=>isCalled(m)).length;
   const aP=done.filter(m=>{const p=myPair(m);return p&&(p.derechaId||p.revesId);}).length;
   const aW=done.filter(m=>{const p=myPair(m);return p&&(p.derechaId===player.id||p.revesId===player.id)&&p.pairResult==="win";}).length;
@@ -202,7 +217,7 @@ function App(){
         const now=new Date(),sy=data.licYear||now.getFullYear();
         let ps=(data.players||INIT_PLAYERS).map(p=>({licencia:true,sanction:null,nick:"",baseStats:{nC:0,nP:0,nW:0,nL:0},...p}));
         if(now.getFullYear()>sy&&now.getMonth()===0)ps=ps.map(p=>({...p,licencia:false}));
-        const c=data.club||CLUB_DEFAULT,m=data.matches||[],ld=data.ligaData||INIT_LIGA;
+        const c=data.club||CLUB_DEFAULT,m=(data.matches||[]).map(normalizeMatch),ld=data.ligaData||INIT_LIGA;
         setClub(c);setPlayers(ps);setMatches(m);setLigaData(ld);
         ref.current={club:c,players:ps,matches:m,ligaData:ld};
         setSynced(window._fbReady===true);
@@ -298,7 +313,7 @@ function ConvTab({club,players,matches,onSave}){
                 </div>
               </Row>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8}}>
-                <div style={{fontSize:11,color:GREY}}>{m.calledDerecha.length+m.calledReves.length} conv · {m.pairs.filter(p=>p.derechaId&&p.revesId).length*2} titulares</div>
+                <div style={{fontSize:11,color:GREY}}>{(m.calledDerecha||[]).length+(m.calledReves||[]).length} conv · {(m.pairs||[]).filter(p=>p.derechaId&&p.revesId).length*2} titulares</div>
                 {m.status!=="complete"&&<span style={chipS(AMBER,AMBERL)}>⚠️ En progreso</span>}
               </div>
             </div>
