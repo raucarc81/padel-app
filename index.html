@@ -208,6 +208,7 @@ function App(){
   const [players,setPlayers]=useState([]);
   const [matches,setMatches]=useState([]);
   const [ligaData,setLigaData]=useState(INIT_LIGA);
+  const [teamBase,setTeamBase]=useState({matches:0,wins:0,losses:0});
   const [synced,setSynced]=useState(false);
   const [ready,setReady]=useState(false);
   const ref=useRef({club:CLUB_DEFAULT,players:[],matches:[],ligaData:INIT_LIGA});
@@ -225,13 +226,13 @@ function App(){
           };
         });
         if(now.getFullYear()>sy&&now.getMonth()===0)ps=ps.map(p=>({...p,licencia:false}));
-        const c=data.club||CLUB_DEFAULT,m=(data.matches||[]).map(normalizeMatch),ld=data.ligaData||INIT_LIGA;
-        setClub(c);setPlayers(ps);setMatches(m);setLigaData(ld);
-        ref.current={club:c,players:ps,matches:m,ligaData:ld};
+        const c=data.club||CLUB_DEFAULT,m=(data.matches||[]).map(normalizeMatch),ld=data.ligaData||INIT_LIGA,tb=data.teamBase||{matches:0,wins:0,losses:0};
+        setClub(c);setPlayers(ps);setMatches(m);setLigaData(ld);setTeamBase(tb);
+        ref.current={club:c,players:ps,matches:m,ligaData:ld,teamBase:tb};
         setSynced(window._fbReady===true);
       }else{
-        setPlayers(INIT_PLAYERS);setLigaData(INIT_LIGA);
-        ref.current={club:CLUB_DEFAULT,players:INIT_PLAYERS,matches:[],ligaData:INIT_LIGA};
+        setPlayers(INIT_PLAYERS);setLigaData(INIT_LIGA);setTeamBase({matches:0,wins:0,losses:0});
+        ref.current={club:CLUB_DEFAULT,players:INIT_PLAYERS,matches:[],ligaData:INIT_LIGA,teamBase:{matches:0,wins:0,losses:0}};
       }
       setReady(true);
     });
@@ -242,6 +243,7 @@ function App(){
   const setM=m=>{setMatches(m);persist({matches:m});};
   const setC=c=>{setClub(c);persist({club:c});};
   const setLD=ld=>{setLigaData(ld);persist({ligaData:ld});};
+  const setTB=tb=>{setTeamBase(tb);persist({teamBase:tb});};
   if(!ready)return<div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0f2419"}}><div style={{textAlign:"center"}}><div style={{fontSize:52,marginBottom:14}}>🎾</div><div style={{color:G3,fontFamily:"'Outfit',sans-serif",fontWeight:700,fontSize:18}} className="pulse">Cargando...</div></div></div>;
   return(
     <div style={{background:"#0f2419",minHeight:"100vh"}}>
@@ -249,7 +251,7 @@ function App(){
       <div style={{padding:"12px 12px 90px"}}>
         {tab==="conv"    &&<ConvTab    club={club} players={players} matches={matches} onSave={setM}/>}
         {tab==="players" &&<PlayersTab players={players} onUpdate={setP}/>}
-        {tab==="stats"   &&<StatsTab   players={players} matches={matches} onUpdate={setP}/>}
+        {tab==="stats"   &&<StatsTab   players={players} matches={matches} onUpdate={setP} teamBase={teamBase} onTeamSave={setTB}/>}
         {tab==="liga"    &&<LigaTab    players={players} onUpdate={setP} ligaData={ligaData} onLigaSave={setLD}/>}
       </div>
       <BottomNav tab={tab} onChange={setTab}/>
@@ -582,12 +584,23 @@ function PlayersTab({players,onUpdate}){
   );
 }
 // STATS TAB
-function StatsTab({players,matches,onUpdate}){
+function StatsTab({players,matches,onUpdate,teamBase,onTeamSave}){
   const [editingId,setEditingId]=useState(null);
   const [ef,setEf]=useState({nC:0,nP:0,nW:0,nL:0});
+  const [editTeam,setEditTeam]=useState(false);
+  const [teamDraft,setTeamDraft]=useState({matches:0,wins:0,losses:0});
+
   const allStats=useMemo(()=>players.map(p=>({...p,...calcPlayerStats(p,matches)})).sort((a,b)=>b.nP-a.nP),[players,matches]);
   const startEdit=p=>{const s=p.baseStats||{nC:0,nP:0,nW:0,nL:0};setEf({nC:s.nC,nP:s.nP,nW:s.nW,nL:s.nL});setEditingId(p.id);};
   const saveEdit=id=>{onUpdate(players.map(p=>p.id===id?{...p,baseStats:{nC:Number(ef.nC)||0,nP:Number(ef.nP)||0,nW:Number(ef.nW)||0,nL:Number(ef.nL)||0}}:p));setEditingId(null);};
+
+  const autoWins=matches.filter(m=>m.result==="win").length;
+  const autoLosses=matches.filter(m=>m.result==="loss").length;
+  const tb=teamBase||{matches:0,wins:0,losses:0};
+  const totalMatches=tb.matches+matches.length;
+  const totalWins=tb.wins+autoWins;
+  const totalLosses=tb.losses+autoLosses;
+
   const exportXLSX=()=>{
     const H=["Jugador","Nombre completo","Posición","Pts FMP","Convocatorias","P. Jugados","P. Ganados","P. Perdidos","% Participación","% Efectividad","Licencia","Sanción"];
     const rows=allStats.map(s=>[s.nick||shortName(s.name),s.name,s.position==="derecha"?"Derecha":"Revés",s.points,s.nC,s.nP,s.nW,s.nL,s.pPl/100,s.pWi/100,s.licencia?"Sí":"No",s.sanction||"—"]);
@@ -598,24 +611,59 @@ function StatsTab({players,matches,onUpdate}){
     const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Estadísticas");
     XLSX.writeFile(wb,`LaNavePadel_Stats_${new Date().toISOString().slice(0,10)}.xlsx`);
   };
-  const wins=matches.filter(m=>m.result==="win").length,losses=matches.filter(m=>m.result==="loss").length;
+
   return(
     <div>
       <STitle action={<button onClick={exportXLSX} style={{...btnS(AMBER),fontSize:13}}>📥 Excel</button>}>Estadísticas</STitle>
-      {matches.length>0&&(
-        <div style={{background:`linear-gradient(135deg,${G8},${G7})`,borderRadius:20,boxShadow:"0 4px 20px rgba(0,0,0,.35)",padding:16,marginBottom:12,display:"flex"}}>
-          {[["Partidos",matches.length],["Victorias",wins],["Derrotas",losses]].map(([l,v],i)=>(
-            <div key={l} style={{flex:1,textAlign:"center",borderRight:i<2?"1px solid rgba(255,255,255,.15)":"none"}}>
-              <div style={{fontFamily:"'Outfit',sans-serif",fontSize:26,fontWeight:800,color:"#fff"}}>{v}</div>
-              <div style={{fontSize:9,color:"rgba(255,255,255,.55)",fontWeight:700,letterSpacing:.5}}>{l.toUpperCase()}</div>
+
+      {/* BANNER TOTALES DEL EQUIPO — editable */}
+      <div style={{background:`linear-gradient(135deg,${G8},${G7})`,borderRadius:20,boxShadow:"0 4px 20px rgba(0,0,0,.35)",padding:16,marginBottom:12}}>
+        {editTeam?(
+          <div className="fade-in">
+            <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.7)",marginBottom:12,textAlign:"center"}}>
+              ✏️ Editar totales del equipo — introduce los datos reales de la temporada
             </div>
-          ))}
-        </div>
-      )}
-      <div className="card" style={{padding:"10px 14px",marginBottom:10}}>
-        <div style={{fontSize:11,color:GREY}}>Las estadísticas combinan el <b style={{color:DARK}}>historial importado</b> más los <b style={{color:DARK}}>nuevos partidos</b> de la app. Pulsa <b>✏️ Historial</b> para corregir datos anteriores.</div>
+            <div style={{display:"flex",gap:10,marginBottom:12}}>
+              {[["Partidos jugados","matches"],["Victorias","wins"],["Derrotas","losses"]].map(([l,k])=>(
+                <div key={k} style={{flex:1,textAlign:"center"}}>
+                  <div style={{fontSize:10,color:"rgba(255,255,255,.6)",fontWeight:700,marginBottom:4}}>{l.toUpperCase()}</div>
+                  <input type="number" value={teamDraft[k]} onChange={e=>setTeamDraft(d=>({...d,[k]:Number(e.target.value)||0}))}
+                    style={{width:"100%",background:"rgba(255,255,255,.15)",border:"1.5px solid rgba(255,255,255,.3)",borderRadius:10,padding:"8px 4px",fontSize:22,fontWeight:800,color:"#fff",textAlign:"center",outline:"none"}} min="0"/>
+                </div>
+              ))}
+            </div>
+            <div style={{fontSize:10,color:"rgba(255,255,255,.5)",textAlign:"center",marginBottom:10}}>
+              Estos son el historial de la temporada. La app sumará automáticamente los nuevos partidos que registres.
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setEditTeam(false)} style={{...btnS("rgba(255,255,255,.15)","rgba(255,255,255,.8)",12),flex:1,boxShadow:"none"}}>Cancelar</button>
+              <button onClick={()=>{onTeamSave(teamDraft);setEditTeam(false);}} style={{...btnS(G4,G9,13),flex:2}}>💾 Guardar totales</button>
+            </div>
+          </div>
+        ):(
+          <div>
+            <div style={{display:"flex",marginBottom:8}}>
+              {[["Partidos",totalMatches],["Victorias",totalWins],["Derrotas",totalLosses]].map(([l,v],i)=>(
+                <div key={l} style={{flex:1,textAlign:"center",borderRight:i<2?"1px solid rgba(255,255,255,.15)":"none"}}>
+                  <div style={{fontFamily:"'Outfit',sans-serif",fontSize:26,fontWeight:800,color:"#fff"}}>{v}</div>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,.55)",fontWeight:700,letterSpacing:.5}}>{l.toUpperCase()}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{textAlign:"center"}}>
+              <button onClick={()=>{setTeamDraft({...tb});setEditTeam(true);}}
+                style={{background:"rgba(255,255,255,.12)",border:"1px solid rgba(255,255,255,.2)",borderRadius:20,padding:"5px 14px",color:"rgba(255,255,255,.7)",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                ✏️ Editar totales del equipo
+              </button>
+            </div>
+          </div>
+        )}
       </div>
-      {allStats.length===0?<Empty ico="📊" text="Sin datos aún" sub="Los datos del Excel ya están cargados"/>:
+
+      <div className="card" style={{padding:"10px 14px",marginBottom:10}}>
+        <div style={{fontSize:11,color:GREY}}>Las estadísticas de jugadores combinan el <b style={{color:DARK}}>historial importado</b> más los <b style={{color:DARK}}>nuevos partidos</b> de la app.</div>
+      </div>
+      {allStats.length===0?<Empty ico="📊" text="Sin datos aún"/>:
         allStats.map((s,i)=>{
           const pc=s.pWi>=60?G5:s.pWi>=40?AMBER:s.pWi>0?RED:GREY;
           const color=s.position==="derecha"?G5:BLUE,colorL=s.position==="derecha"?"#e6f4ea":BLUEL;
@@ -646,7 +694,7 @@ function StatsTab({players,matches,onUpdate}){
               </div>
               {isEd&&(
                 <div className="fade-in" style={{background:"#fffbeb",border:`1.5px solid ${AMBER}40`,borderRadius:12,padding:12,marginTop:8}}>
-                  <div style={{fontSize:11,fontWeight:700,color:AMBER,marginBottom:10}}>Editar historial importado (anterior a la app)</div>
+                  <div style={{fontSize:11,fontWeight:700,color:AMBER,marginBottom:10}}>Editar historial del jugador (anterior a la app)</div>
                   <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                     {[["Convocatorias","nC"],["Jugados","nP"],["Ganados","nW"],["Perdidos","nL"]].map(([l,k])=>(
                       <div key={k} style={{flex:"1 1 70px"}}>
@@ -657,7 +705,7 @@ function StatsTab({players,matches,onUpdate}){
                   </div>
                   <div style={{display:"flex",gap:8,marginTop:10}}>
                     <button onClick={()=>setEditingId(null)} style={{...btnS("#e5e7eb","#374151",12),flex:1}}>Cancelar</button>
-                    <button onClick={()=>saveEdit(s.id)} style={{...btnS(AMBER,"#fff",12),flex:2}}>💾 Guardar historial</button>
+                    <button onClick={()=>saveEdit(s.id)} style={{...btnS(AMBER,"#fff",12),flex:2}}>💾 Guardar</button>
                   </div>
                 </div>
               )}
