@@ -1,6 +1,6 @@
 // Service Worker — La Nave Padel App
 // Versiona el caché para forzar actualización al cambiar el sw
-const CACHE_NAME = 'padel-v1';
+const CACHE_NAME = 'padel-v2';
 
 // Archivos que se cachean para uso offline
 const ASSETS = [
