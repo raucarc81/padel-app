@@ -313,8 +313,12 @@ function ConvTab({club,players,matches,onSave}){
             <div key={m.id} className="card fade-in" onClick={()=>{setCur(m);setView(m.status==="complete"?"detail":"wizard");}} style={{cursor:"pointer",borderLeft:`5px solid ${rc}`,paddingLeft:14}}>
               <Row>
                 <div style={{flex:1}}>
-                  <div style={{fontSize:11,color:GREY,fontWeight:600,marginBottom:2}}>{m.date} · {m.isHome?"🏠 Casa":"✈️ Visitante"}</div>
-                  <div style={{fontWeight:700,color:DARK,fontSize:15,fontFamily:"'Outfit',sans-serif"}}>vs {m.isHome?(m.team2||"—"):(m.team1||"—")}</div>
+                  <div style={{fontSize:11,color:GREY,fontWeight:600,marginBottom:2}}>{m.date} · {m.isHome?"🏠 Local":"✈️ Visitante"}</div>
+                  <div style={{fontWeight:700,color:DARK,fontSize:15,fontFamily:"'Outfit',sans-serif"}}>
+                    {m.isHome?m.team1:m.team2||"—"}
+                    <span style={{color:GREY,fontWeight:400,fontSize:13}}> vs </span>
+                    {m.isHome?m.team2||"—":m.team1}
+                  </div>
                   <div style={{fontSize:12,color:GREY,marginTop:2}}>📍 {m.location||"—"}</div>
                 </div>
                 <div style={{textAlign:"right"}}>
@@ -353,19 +357,54 @@ function Wizard({match,players,club,onSave,onDone}){
   );
 }
 function StepSetup({m,club,onChange,onNext}){
-  const [hint,setHint]=useState([]);const ok=m.team2.trim()&&m.location.trim()&&m.date;
-  const h2=v=>{onChange({team2:v});setHint(v?RIVALS.filter(r=>r.toLowerCase().includes(v.toLowerCase())&&r.toLowerCase()!==v.toLowerCase()).slice(0,3):[]);};
+  const [hint,setHint]=useState([]);
+  const rival=m.isHome?m.team2:m.team1;
+  const setRival=v=>{
+    onChange(m.isHome?{team2:v}:{team1:v});
+    setHint(v?RIVALS.filter(r=>r.toLowerCase().includes(v.toLowerCase())&&r.toLowerCase()!==v.toLowerCase()).slice(0,3):[]);
+  };
+  const setHome=home=>{
+    // Swap teams if changing home/away
+    if(home===m.isHome)return;
+    onChange({isHome:home,team1:home?club:rival,team2:home?rival:club});
+  };
+  const ok=rival.trim()&&m.location.trim()&&m.date;
   return(
     <div className="card">
       <Fld label="Fecha"><input type="date" value={m.date} onChange={e=>onChange({date:e.target.value})} style={inpS}/></Fld>
-      <Fld label="Equipo 1 (tu club = jugamos en casa)">
-        <input value={m.team1} onChange={e=>{const v=e.target.value;onChange({team1:v,isHome:v.trim().toUpperCase()===club.trim().toUpperCase()});}} style={inpS}/>
-        <div style={{fontSize:12,marginTop:5,fontWeight:700,color:m.isHome?G6:AMBER}}>{m.isHome?"🏠 Jugamos en casa":"✈️ Jugamos de visitante"}</div>
+
+      <Fld label="¿Dónde jugamos?">
+        <div style={{display:"flex",gap:8,marginBottom:6}}>
+          <button onClick={()=>setHome(true)} style={{...btnS(m.isHome?G5:"#e5e7eb",m.isHome?"#fff":"#374151"),flex:1,fontSize:13}}>
+            🏠 En casa
+          </button>
+          <button onClick={()=>setHome(false)} style={{...btnS(!m.isHome?BLUE:"#e5e7eb",!m.isHome?"#fff":"#374151"),flex:1,fontSize:13}}>
+            ✈️ Fuera
+          </button>
+        </div>
+        <div style={{fontSize:12,color:m.isHome?G6:BLUE,fontWeight:600,textAlign:"center",padding:"4px 0"}}>
+          {m.isHome?"🏠 Jugamos en casa — somos el equipo local":"✈️ Jugamos fuera — somos el equipo visitante"}
+        </div>
       </Fld>
+
       <Fld label="Equipo rival">
-        <input value={m.team2} onChange={e=>h2(e.target.value)} style={inpS} placeholder="Escribe para buscar..."/>
-        {hint.length>0&&<div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:5}}>{hint.map(r=><button key={r} onClick={()=>{onChange({team2:r});setHint([]);}} style={{...btnS(G1,G7,11),boxShadow:"none",borderRadius:8}}>{r}</button>)}</div>}
+        <input value={rival} onChange={e=>setRival(e.target.value)} style={inpS} placeholder="Escribe para buscar rival..."/>
+        {hint.length>0&&<div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:5}}>{hint.map(r=><button key={r} onClick={()=>{setRival(r);setHint([]);}} style={{...btnS(G1,G7,11),boxShadow:"none",borderRadius:8}}>{r}</button>)}</div>}
       </Fld>
+
+      {/* Vista previa del enfrentamiento */}
+      {rival.trim()&&(
+        <div style={{background:`linear-gradient(135deg,${G8},${G7})`,borderRadius:14,padding:"12px 16px",marginBottom:14,textAlign:"center"}}>
+          <div style={{fontSize:11,color:"rgba(255,255,255,.5)",marginBottom:4}}>ENFRENTAMIENTO</div>
+          <div style={{fontFamily:"'Outfit',sans-serif",fontWeight:800,color:"#fff",fontSize:15}}>
+            {m.isHome?club:rival}
+            <span style={{color:"rgba(255,255,255,.35)",fontWeight:400,fontSize:13}}> vs </span>
+            {m.isHome?rival:club}
+          </div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,.5)",marginTop:3}}>Local — Visitante</div>
+        </div>
+      )}
+
       <Fld label="Ubicación — dirección o enlace Google Maps">
         <input value={m.location} onChange={e=>onChange({location:e.target.value})} style={inpS} placeholder="Dirección del club  ó  https://maps.google.com/..."/>
         {m.location&&<div style={{marginTop:6}}><a href={locLink(m.location)} target="_blank" rel="noreferrer" style={{fontSize:12,color:BLUE,fontWeight:600}}>🗺️ {isUrl(m.location)?"Ver en Maps":"Buscar en Maps"}</a></div>}
@@ -485,8 +524,13 @@ function Detail({match,players,onUpdate,onBack,onDelete,club}){
         <button onClick={onDelete} style={{...btnS(REDL,RED,12),padding:"9px 12px"}}>🗑️</button>
       </div>
       <div style={{background:`linear-gradient(135deg,${G8},${G7})`,borderRadius:20,boxShadow:"0 4px 20px rgba(0,0,0,.35)",padding:16,marginBottom:12,textAlign:"center"}}>
-        <div style={{fontSize:11,color:"rgba(255,255,255,.6)",fontWeight:700,letterSpacing:1,marginBottom:4}}>{m.date} · {m.isHome?"🏠 EN CASA":"✈️ DE VISITANTE"}</div>
-        <div style={{fontFamily:"'Outfit',sans-serif",fontSize:18,fontWeight:800,color:"#fff"}}>{m.team1||"—"} <span style={{color:"rgba(255,255,255,.3)"}}>vs</span> {m.team2||"—"}</div>
+        <div style={{fontSize:11,color:"rgba(255,255,255,.6)",fontWeight:700,letterSpacing:1,marginBottom:4}}>{m.date} · {m.isHome?"🏠 LOCAL":"✈️ VISITANTE"}</div>
+        <div style={{fontFamily:"'Outfit',sans-serif",fontSize:18,fontWeight:800,color:"#fff"}}>
+          {m.isHome?m.team1:m.team2||"—"}
+          <span style={{color:"rgba(255,255,255,.35)",fontWeight:400}}> vs </span>
+          {m.isHome?m.team2||"—":m.team1}
+        </div>
+        <div style={{fontSize:11,color:"rgba(255,255,255,.4)",marginTop:2}}>Local — Visitante</div>
         {m.location&&<div style={{fontSize:12,color:"rgba(255,255,255,.6)",marginTop:5}}>
           📍 {isUrl(m.location)?<a href={m.location} target="_blank" rel="noreferrer" style={{color:"rgba(255,255,255,.8)"}}>{m.location.length>45?m.location.slice(0,45)+"...":m.location}</a>:m.location}
           {" "}<a href={locLink(m.location)} target="_blank" rel="noreferrer" style={{color:G3,fontWeight:700}}>🗺️</a>
