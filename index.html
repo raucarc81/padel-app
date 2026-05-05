@@ -215,7 +215,15 @@ function App(){
     const unsub=Storage.listen(data=>{
       if(data){
         const now=new Date(),sy=data.licYear||now.getFullYear();
-        let ps=(data.players||INIT_PLAYERS).map(p=>({licencia:true,sanction:null,nick:"",baseStats:{nC:0,nP:0,nW:0,nL:0},...p}));
+        let ps=(data.players||INIT_PLAYERS).map(p=>{
+          const init=INIT_PLAYERS.find(ip=>ip.id===p.id);
+          const bs=p.baseStats;
+          const hasStats=bs&&(bs.nC>0||bs.nP>0||bs.nW>0||bs.nL>0);
+          return{licencia:true,sanction:null,...p,
+            nick:p.nick||init?.nick||"",
+            baseStats:hasStats?bs:(init?.baseStats||{nC:0,nP:0,nW:0,nL:0})
+          };
+        });
         if(now.getFullYear()>sy&&now.getMonth()===0)ps=ps.map(p=>({...p,licencia:false}));
         const c=data.club||CLUB_DEFAULT,m=(data.matches||[]).map(normalizeMatch),ld=data.ligaData||INIT_LIGA;
         setClub(c);setPlayers(ps);setMatches(m);setLigaData(ld);
