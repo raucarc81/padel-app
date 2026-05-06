@@ -302,7 +302,7 @@ function ConvTab({club,players,matches,onSave}){
   const saveM=m=>{const l=matches.some(x=>x.id===m.id)?matches.map(x=>x.id===m.id?m:x):[...matches,m];onSave(l);setCur(m);};
   const delM=id=>{if(confirm("¿Eliminar esta convocatoria?")){onSave(matches.filter(m=>m.id!==id));setView("list");setCur(null);}};
   if(view==="wizard")return<Wizard match={cur} players={players} club={club} onSave={saveM} onDone={()=>setView("list")}/>;
-  if(view==="detail")return<Detail match={cur} players={players} onUpdate={saveM} onBack={()=>setView("list")} onDelete={()=>delM(cur.id)} club={club}/>;
+  if(view==="detail")return<Detail match={cur} players={players} onUpdate={saveM} onBack={()=>setView("list")} onDelete={()=>delM(cur.id)} club={club} onEdit={()=>setView("wizard")}/>;
   return(
     <div>
       <STitle action={<button onClick={create} style={btnS()}>+ Nueva</button>}>Convocatorias</STitle>
@@ -338,7 +338,7 @@ function ConvTab({club,players,matches,onSave}){
 }
 function Wizard({match,players,club,onSave,onDone}){
   const mRef=useRef({...match});const [m,setM]=useState({...match});
-  const [step,setStep]=useState(match.status==="setup"?1:match.status==="called"?2:3);
+  const [step,setStep]=useState(match.status==="setup"?1:match.status==="called"?2:1);
   const upd=ch=>{const next={...mRef.current,...ch};mRef.current=next;setM(next);onSave(next);};
   const STEPS=["","Datos del partido","Llamada","Parejas"];
   return(
@@ -476,7 +476,7 @@ function StepPairs({m,players,onChange,onFinish,onBack}){
   );
 }
 // DETAIL — resultado por pareja + WhatsApp
-function Detail({match,players,onUpdate,onBack,onDelete,club}){
+function Detail({match,players,onUpdate,onBack,onDelete,club,onEdit}){
   const [m,setM]=useState({...match});
   const setPairRes=(idx,res)=>{
     const np=m.pairs.map((p,i)=>{if(i!==idx)return p;return{...p,pairResult:p.pairResult===res?null:res};});
@@ -520,6 +520,7 @@ function Detail({match,players,onUpdate,onBack,onDelete,club}){
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,paddingTop:8}}>
         <button onClick={onBack} style={{background:"none",border:"none",cursor:"pointer",fontSize:26,color:G3,lineHeight:1}}>←</button>
         <div style={{flex:1,fontFamily:"'Outfit',sans-serif",fontWeight:800,color:"#fff",fontSize:18}}>Convocatoria</div>
+        <button onClick={onEdit} style={{...btnS(AMBERL,AMBER,12),padding:"9px 12px"}}>✏️ Editar</button>
         <button onClick={()=>shareWhatsApp(m,players,club)} style={{...btnS("#25D366"),padding:"9px 12px",fontSize:12}}>📲 WhatsApp</button>
         <button onClick={onDelete} style={{...btnS(REDL,RED,12),padding:"9px 12px"}}>🗑️</button>
       </div>
