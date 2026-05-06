@@ -760,30 +760,53 @@ function StatsTab({players,matches,onUpdate,teamBase,onTeamSave}){
   );
 }
 // LIGA TAB
+// LIGA TAB
 function LigaTab({players,onUpdate,ligaData,onLigaSave}){
   const [editing,setEditing]=useState(false);
   const [ligaEdit,setLigaEdit]=useState(ligaData);
-  const [imgSrc,setImgSrc]=useState(null);
-  const [loadingP,setLoadingP]=useState(false);
+  const [showPaste,setShowPaste]=useState(false);
+  const [pasteText,setPasteText]=useState("");
+  const [pasteMsg,setPasteMsg]=useState(null);
   const [msg,setMsg]=useState(null);
+  const [loadingP,setLoadingP]=useState(false);
   const saveTable=()=>{onLigaSave(ligaEdit);setEditing(false);setMsg({type:"ok",text:"✅ Clasificación guardada"});};
   const addRow=()=>setLigaEdit(t=>[...t,{pos:t.length+1,name:"NUEVO EQUIPO",pj:0,pg:0,pp:0,sg:0,sp:0,pts:0,san:0,total:0}]);
   const delRow=i=>setLigaEdit(t=>t.filter((_,idx)=>idx!==i).map((r,idx)=>({...r,pos:idx+1})));
   const setCell=(i,k,v)=>setLigaEdit(t=>t.map((r,idx)=>idx===i?{...r,[k]:k==="name"?v:Number(v)||0}:r));
-  const handleImg=e=>{const f=e.target.files[0];if(!f)return;const fr=new FileReader();fr.onload=ev=>setImgSrc(ev.target.result);fr.readAsDataURL(f);};
+  const parsePaste=()=>{
+    if(!pasteText.trim()){setPasteMsg({type:"err",text:"Pega el texto primero"});return;}
+    const lines=pasteText.trim().split("\n").map(l=>l.trim()).filter(l=>l.length>2);
+    const rows=[];
+    for(const line of lines){
+      const parts=line.split(/\t+|\s{2,}/).map(p=>p.trim()).filter(p=>p.length>0);
+      if(parts.length<5)continue;
+      if(!/^\d+$/.test(parts[0]))continue;
+      const pos=parseInt(parts[0]);
+      let numStart=1;
+      while(numStart<parts.length&&!/^\d+$/.test(parts[numStart]))numStart++;
+      if(numStart>=parts.length)continue;
+      const name=parts.slice(1,numStart).join(" ").toUpperCase();
+      const nums=parts.slice(numStart).map(n=>parseInt(n)||0);
+      if(nums.length>=5&&name.length>1){
+        rows.push({pos,name,pj:nums[0]||0,pg:nums[1]||0,pp:nums[2]||0,sg:nums[3]||0,sp:nums[4]||0,pts:nums[5]||0,san:nums[6]||0,total:nums[7]||nums[5]||0});
+      }
+    }
+    if(rows.length===0){setPasteMsg({type:"err",text:"No se pudo leer. Asegúrate de copiar las filas completas con los números."});return;}
+    rows.sort((a,b)=>a.pos-b.pos);
+    onLigaSave(rows);
+    setPasteMsg({type:"ok",text:`✅ ${rows.length} equipos importados correctamente`});
+    setPasteText("");
+    setTimeout(()=>{setShowPaste(false);setPasteMsg(null);},2500);
+  };
   const syncPuntos=async()=>{
     setLoadingP(true);setMsg(null);
     try{
       const res=await fetch(PROXY+encodeURIComponent(FMP_TEAMS));if(!res.ok)throw new Error("HTTP "+res.status);
       const html=await res.text();const doc=new DOMParser().parseFromString(html,"text/html");const fmpData=[];
       doc.querySelectorAll("table tr").forEach(tr=>{const tds=tr.querySelectorAll("td");if(tds.length>=6){const nombre=(tds[2]?.textContent||"").trim(),ap1=(tds[3]?.textContent||"").trim(),pts=parseInt(tds[5]?.textContent||"0")||0;if(nombre&&ap1)fmpData.push({nombre,ap1,pts});}});
-      if(fmpData.length>0){
-        let updated=0;
-        const np=players.map(p=>{const parts=p.name.split(" ");const match=fmpData.find(fd=>parts[0]&&fd.nombre.toLowerCase().includes(parts[0].toLowerCase())&&parts[1]&&fd.ap1.toLowerCase().includes(parts[1].toLowerCase()));if(match&&match.pts!==p.points){updated++;return{...p,points:match.pts};}return p;});
-        if(updated>0){onUpdate(np);setMsg({type:"ok",text:`✅ ${updated} jugadores actualizados desde FMP`});}
-        else setMsg({type:"ok",text:`✅ Puntos ya al día (${fmpData.length} registros)`});
-      }else setMsg({type:"warn",text:"⚠️ Sin datos parseables. Actualiza la tabla manualmente."});
-    }catch(e){setMsg({type:"err",text:`❌ ${e.message} — FMP puede bloquear CORS.`});}
+      if(fmpData.length>0){let updated=0;const np=players.map(p=>{const parts=p.name.split(" ");const match=fmpData.find(fd=>parts[0]&&fd.nombre.toLowerCase().includes(parts[0].toLowerCase())&&parts[1]&&fd.ap1.toLowerCase().includes(parts[1].toLowerCase()));if(match&&match.pts!==p.points){updated++;return{...p,points:match.pts};}return p;});if(updated>0){onUpdate(np);setMsg({type:"ok",text:`✅ ${updated} jugadores actualizados`});}else setMsg({type:"warn",text:"Sin cambios en puntos FMP"});}
+      else setMsg({type:"warn",text:"⚠️ FMP bloqueó la petición. Usa el método de pegar texto."});
+    }catch(e){setMsg({type:"err",text:"❌ FMP bloqueó la petición (CORS). Usa el método de pegar texto."});}
     setLoadingP(false);
   };
   const isOwn=name=>(name||"").toUpperCase().includes("LA NAVE")||(name||"").toUpperCase().includes("FOCH");
@@ -792,67 +815,59 @@ function LigaTab({players,onUpdate,ligaData,onLigaSave}){
   return(
     <div>
       <STitle>Liga FMP</STitle>
-      <div className="card">
-        <div style={{fontFamily:"'Outfit',sans-serif",fontWeight:800,color:DARK,fontSize:15,marginBottom:2}}>Liga Veteranos 2025/2026 · Primera División</div>
-        <div style={{fontSize:12,color:GREY,marginBottom:12}}>Datos a 05/05/2026 — Jornada 19/20</div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
-          <button onClick={syncPuntos} disabled={loadingP} style={{...btnS(BLUE),flex:1,minWidth:130,opacity:loadingP?.6:1}}>{loadingP?<span className="pulse">⏳ Sync...</span>:"🔄 Sync puntos FMP"}</button>
-          <button onClick={()=>{setEditing(!editing);if(!editing)setLigaEdit([...ligaData]);}} style={{...btnS(editing?AMBER:G6),flex:1,minWidth:130}}>{editing?"✕ Cancelar":"✏️ Editar tabla"}</button>
+      <div className="card" style={{borderLeft:`4px solid ${G5}`,marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+          <div><div style={{fontWeight:700,color:DARK,fontSize:15}}>📋 Actualizar clasificación</div><div style={{fontSize:11,color:GREY,marginTop:2}}>Método recomendado — siempre funciona</div></div>
+          <button onClick={()=>{setShowPaste(!showPaste);setPasteMsg(null);}} style={btnS(showPaste?AMBER:G6,undefined,12)}>{showPaste?"✕ Cerrar":"📋 Pegar tabla"}</button>
         </div>
-        <div style={{background:"#f8fafc",borderRadius:10,padding:"10px 12px"}}>
-          <div style={{fontSize:12,fontWeight:700,color:DARK,marginBottom:5}}>📸 Cargar captura para referencia</div>
-          <input type="file" accept="image/*" onChange={handleImg} style={{fontSize:12,width:"100%"}}/>
-          <div style={{fontSize:11,color:GREY,marginTop:4}}>Muestra la imagen como referencia para actualizar la tabla manualmente.</div>
-        </div>
-        {msg&&<div style={{borderRadius:10,padding:"10px 14px",fontSize:12,fontWeight:600,marginTop:10,background:msg.type==="ok"?"#dcfce7":msg.type==="warn"?AMBERL:REDL,color:msg.type==="ok"?"#166534":msg.type==="warn"?AMBER:RED}}>{msg.text}</div>}
+        {showPaste&&(
+          <div className="fade-in">
+            <div style={{background:"#f0fdf4",border:"1.5px solid #d1fae5",borderRadius:12,padding:12,marginBottom:10}}>
+              <div style={{fontWeight:700,color:G7,fontSize:13,marginBottom:6}}>Cómo hacerlo (30 segundos):</div>
+              <div style={{fontSize:12,color:DARK,lineHeight:1.9}}>
+                1️⃣ Abre <a href="https://www.fmpadel.com/ligas_clasificacion.aspx?idCategoria=135" target="_blank" rel="noreferrer" style={{color:BLUE,fontWeight:600}}>fmpadel.com → clasificación</a> en otro tab<br/>
+                2️⃣ Selecciona todas las filas de la tabla (del 1 al último equipo)<br/>
+                3️⃣ Copia con <b>Ctrl+C</b><br/>
+                4️⃣ Pega aquí abajo con <b>Ctrl+V</b>
+              </div>
+            </div>
+            <textarea value={pasteText} onChange={e=>setPasteText(e.target.value)}
+              placeholder={"Pega aquí el texto copiado de FMP...\n\nVerás algo como:\n1  MAKINGPADEL A  19  16  3  152  69  69  0  69\n2  BAMVOLEA INDOOR PADEL TRAINING B  20  15  5..."}
+              style={{width:"100%",height:130,border:"1.5px solid #d1fae5",borderRadius:12,padding:"10px 12px",fontSize:12,fontFamily:"monospace",outline:"none",resize:"vertical",background:"#fafafa",color:DARK,marginBottom:10}}/>
+            {pasteMsg&&<div style={{borderRadius:8,padding:"8px 12px",fontSize:12,fontWeight:600,marginBottom:10,background:pasteMsg.type==="ok"?"#dcfce7":REDL,color:pasteMsg.type==="ok"?"#166534":RED}}>{pasteMsg.text}</div>}
+            <button onClick={parsePaste} style={{...btnS(),width:"100%",padding:"12px",fontSize:14}}>⚡ Actualizar clasificación</button>
+          </div>
+        )}
       </div>
-      {imgSrc&&(
-        <div className="card">
-          <Row style={{marginBottom:8}}><div style={{fontWeight:700,fontSize:14,color:DARK}}>📸 Captura de referencia</div><button onClick={()=>setImgSrc(null)} style={{background:"none",border:"none",cursor:"pointer",color:RED,fontSize:18}}>✕</button></Row>
-          <img src={imgSrc} alt="Clasificación" style={{width:"100%",borderRadius:8,border:"1px solid #e5e7eb"}}/>
+      <div className="card" style={{marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontWeight:700,color:DARK,fontSize:14}}>🔄 Sync puntos individuales FMP</div><div style={{fontSize:11,color:GREY,marginTop:1}}>Actualiza pts FMP de cada jugador</div></div>
+          <button onClick={syncPuntos} disabled={loadingP} style={{...btnS(BLUE,undefined,12),opacity:loadingP?.6:1,minWidth:80}}>{loadingP?<span className="pulse">⏳</span>:"🔄 Sync"}</button>
         </div>
-      )}
+        {msg&&<div style={{borderRadius:8,padding:"8px 12px",fontSize:11,fontWeight:600,marginTop:10,background:msg.type==="ok"?"#dcfce7":msg.type==="warn"?AMBERL:REDL,color:msg.type==="ok"?"#166534":msg.type==="warn"?AMBER:RED}}>{msg.text}</div>}
+      </div>
       <div className="card" style={{padding:"12px 8px"}}>
         <Row style={{marginBottom:10,padding:"0 6px"}}>
-          <div style={{fontWeight:700,fontSize:15,color:DARK,fontFamily:"'Outfit',sans-serif"}}>Clasificación</div>
-          {editing&&<button onClick={addRow} style={btnS(G6,undefined,11)}>+ Equipo</button>}
+          <div><div style={{fontWeight:700,fontSize:15,color:DARK,fontFamily:"'Outfit',sans-serif"}}>Clasificación</div><div style={{fontSize:11,color:GREY}}>Liga Veteranos 2025/2026 · Primera División</div></div>
+          <button onClick={()=>{setEditing(!editing);if(!editing)setLigaEdit([...ligaData]);}} style={btnS(editing?AMBER:G6,undefined,11)}>{editing?"✕ Cancelar":"✏️ Editar"}</button>
         </Row>
         <div style={{overflowX:"auto"}}>
           {editing?(
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead><tr style={{background:G1}}>{COLS.map(c=><th key={c} style={{padding:"6px 3px",color:G7,fontWeight:700,borderBottom:"2px solid #d1fae5",textAlign:"left",whiteSpace:"nowrap"}}>{c}</th>)}<th></th></tr></thead>
-              <tbody>{ligaEdit.map((row,ri)=>(
-                <tr key={ri} style={{background:isOwn(row.name)?"#dcfce7":ri%2===0?"#fafafa":"#fff"}}>
-                  {KEYS.map(k=>(
-                    <td key={k} style={{padding:"3px 2px"}}>
-                      {k==="name"
-                        ?<input value={row.name} onChange={e=>setCell(ri,"name",e.target.value)} style={{width:"100%",border:"1px solid #d1fae5",borderRadius:6,padding:"4px 5px",fontSize:11,background:"transparent",color:isOwn(row.name)?G7:DARK,fontWeight:isOwn(row.name)?700:400,minWidth:100}}/>
-                        :<input type="number" value={row[k]} onChange={e=>setCell(ri,k,e.target.value)} style={{width:k==="pos"?30:42,border:"1px solid #d1fae5",borderRadius:6,padding:"4px 3px",fontSize:11,textAlign:"center",background:"transparent"}}/>}
-                    </td>
-                  ))}
-                  <td><button onClick={()=>delRow(ri)} style={{background:"none",border:"none",color:RED,cursor:"pointer",fontSize:14,padding:"2px 4px"}}>✕</button></td>
-                </tr>
-              ))}</tbody>
+              <tbody>
+                {ligaEdit.map((row,ri)=>(<tr key={ri} style={{background:isOwn(row.name)?"#dcfce7":ri%2===0?"#fafafa":"#fff"}}>{KEYS.map(k=>(<td key={k} style={{padding:"3px 2px"}}>{k==="name"?<input value={row.name} onChange={e=>setCell(ri,"name",e.target.value)} style={{width:"100%",border:"1px solid #d1fae5",borderRadius:6,padding:"4px 5px",fontSize:11,background:"transparent",minWidth:100}}/>:<input type="number" value={row[k]} onChange={e=>setCell(ri,k,e.target.value)} style={{width:k==="pos"?30:42,border:"1px solid #d1fae5",borderRadius:6,padding:"4px 3px",fontSize:11,textAlign:"center",background:"transparent"}}/>}</td>))}<td><button onClick={()=>delRow(ri)} style={{background:"none",border:"none",color:RED,cursor:"pointer",fontSize:14,padding:"2px 4px"}}>✕</button></td></tr>))}
+                <tr><td colSpan={COLS.length+1} style={{padding:"6px 0"}}><button onClick={addRow} style={{...btnS(G6,undefined,11),width:"100%"}}>+ Añadir equipo</button></td></tr>
+              </tbody>
             </table>
           ):(
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead><tr style={{background:G1}}>{COLS.map(c=><th key={c} style={{padding:"7px 4px",color:G7,fontWeight:700,borderBottom:"2px solid #d1fae5",textAlign:"left",whiteSpace:"nowrap"}}>{c}</th>)}</tr></thead>
-              <tbody>{ligaData.map((row,ri)=>(
-                <tr key={ri} style={{background:isOwn(row.name)?"#dcfce7":ri%2===0?"#fafafa":"#fff",borderBottom:"1px solid #f3f4f6"}}>
-                  <td style={{padding:"7px 4px",fontWeight:700,color:isOwn(row.name)?G7:DARK}}>{row.pos}</td>
-                  <td style={{padding:"7px 4px",fontWeight:isOwn(row.name)?700:400,color:isOwn(row.name)?G7:DARK,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.name}{isOwn(row.name)&&" ★"}</td>
-                  {["pj","pg","pp","sg","sp","pts","san","total"].map(k=><td key={k} style={{padding:"7px 4px",textAlign:"center",color:isOwn(row.name)?G7:GREY,fontWeight:isOwn(row.name)?700:400}}>{row[k]}</td>)}
-                </tr>
-              ))}</tbody>
+              <tbody>{ligaData.map((row,ri)=>(<tr key={ri} style={{background:isOwn(row.name)?"#dcfce7":ri%2===0?"#fafafa":"#fff",borderBottom:"1px solid #f3f4f6"}}><td style={{padding:"7px 4px",fontWeight:700,color:isOwn(row.name)?G7:DARK}}>{row.pos}</td><td style={{padding:"7px 4px",fontWeight:isOwn(row.name)?700:400,color:isOwn(row.name)?G7:DARK,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.name}{isOwn(row.name)&&" ★"}</td>{["pj","pg","pp","sg","sp","pts","san","total"].map(k=><td key={k} style={{padding:"7px 4px",textAlign:"center",color:isOwn(row.name)?G7:GREY,fontWeight:isOwn(row.name)?700:400}}>{row[k]}</td>)}</tr>))}</tbody>
             </table>
           )}
         </div>
-        {editing&&(
-          <div style={{display:"flex",gap:10,marginTop:12,padding:"0 4px"}}>
-            <button onClick={()=>{setEditing(false);setLigaEdit(ligaData);}} style={{...btnS("#e5e7eb","#374151"),flex:1}}>Cancelar</button>
-            <button onClick={saveTable} style={{...btnS(),flex:2}}>💾 Guardar clasificación</button>
-          </div>
-        )}
+        {editing&&<div style={{display:"flex",gap:10,marginTop:12,padding:"0 4px"}}><button onClick={()=>{setEditing(false);setLigaEdit(ligaData);}} style={{...btnS("#e5e7eb","#374151"),flex:1}}>Cancelar</button><button onClick={saveTable} style={{...btnS(),flex:2}}>💾 Guardar clasificación</button></div>}
       </div>
     </div>
   );
