@@ -187,7 +187,7 @@ const shareWhatsApp=(m,players,club)=>{
       t+=`  • P${p.pairNum}: ${d?.nick||shortName(d?.name||"")} / ${r?.nick||shortName(r?.name||"")}${res}\n`;
     });
   });
-  t+=`\n_App La Nave Padel v${APP_VERSION}_`;
+  t+=`\n⚠️ _Llevar DNI a la convocatoria_`;
   window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(t)}`,"_blank");
 };
 // STORAGE
