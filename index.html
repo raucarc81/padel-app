@@ -63,7 +63,7 @@ class ErrorBoundary extends React.Component {
   }
 }
 const {useState,useEffect,useMemo,useRef,useCallback}=React;
-const APP_VERSION="2.0";
+const APP_VERSION="2.1";
 const CLUB_DEFAULT="LA NAVE PADEL CENTER FÖCH CLUB";
 const DB_KEY="padelApp";
 const genId=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36);
@@ -219,10 +219,11 @@ function App(){
         let ps=(data.players||INIT_PLAYERS).map(p=>{
           const init=INIT_PLAYERS.find(ip=>ip.id===p.id);
           const bs=p.baseStats;
-          const hasStats=bs&&(bs.nC>0||bs.nP>0||bs.nW>0||bs.nL>0);
+          // Usa el campo si EXISTE en Firebase (aunque sea todo ceros — reset de temporada)
+          // Solo cae al INIT_PLAYERS si el campo ni siquiera está definido en Firebase
           return{licencia:true,sanction:null,...p,
             nick:p.nick||init?.nick||"",
-            baseStats:hasStats?bs:(init?.baseStats||{nC:0,nP:0,nW:0,nL:0})
+            baseStats:bs!=null?bs:(init?.baseStats||{nC:0,nP:0,nW:0,nL:0})
           };
         });
         if(now.getFullYear()>sy&&now.getMonth()===0)ps=ps.map(p=>({...p,licencia:false}));
@@ -244,6 +245,13 @@ function App(){
   const setC=c=>{setClub(c);persist({club:c});};
   const setLD=ld=>{setLigaData(ld);persist({ligaData:ld});};
   const setTB=tb=>{setTeamBase(tb);persist({teamBase:tb});};
+  const resetSeason=()=>{
+    if(!confirm("⚠️ NUEVA TEMPORADA — RESET COMPLETO\n\nSe pondrá a cero:\n• Historial de todos los jugadores (nC, nP, nW, nL)\n• Todas las convocatorias\n• Totales del equipo\n\n¿Confirmar? Esta acción NO se puede deshacer."))return;
+    const rp=players.map(p=>({...p,baseStats:{nC:0,nP:0,nW:0,nL:0}}));
+    const rtb={matches:0,wins:0,losses:0};
+    setPlayers(rp);setMatches([]);setTeamBase(rtb);
+    persist({players:rp,matches:[],teamBase:rtb});
+  };
   if(!ready)return<div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0f2419"}}><div style={{textAlign:"center"}}><div style={{fontSize:52,marginBottom:14}}>🎾</div><div style={{color:G3,fontFamily:"'Outfit',sans-serif",fontWeight:700,fontSize:18}} className="pulse">Cargando...</div></div></div>;
   return(
     <div style={{background:"#0f2419",minHeight:"100vh"}}>
@@ -251,7 +259,7 @@ function App(){
       <div style={{padding:"12px 12px 90px"}}>
         {tab==="conv"    &&<ConvTab    club={club} players={players} matches={matches} onSave={setM}/>}
         {tab==="players" &&<PlayersTab players={players} onUpdate={setP}/>}
-        {tab==="stats"   &&<StatsTab   players={players} matches={matches} onUpdate={setP} teamBase={teamBase} onTeamSave={setTB}/>}
+        {tab==="stats"   &&<StatsTab   players={players} matches={matches} onUpdate={setP} teamBase={teamBase} onTeamSave={setTB} onResetSeason={resetSeason}/>}
         {tab==="liga"    &&<LigaTab    players={players} onUpdate={setP} ligaData={ligaData} onLigaSave={setLD}/>}
       </div>
       <BottomNav tab={tab} onChange={setTab}/>
@@ -629,7 +637,7 @@ function PlayersTab({players,onUpdate}){
   );
 }
 // STATS TAB
-function StatsTab({players,matches,onUpdate,teamBase,onTeamSave}){
+function StatsTab({players,matches,onUpdate,teamBase,onTeamSave,onResetSeason}){
   const [editingId,setEditingId]=useState(null);
   const [ef,setEf]=useState({nC:0,nP:0,nW:0,nL:0});
   const [editTeam,setEditTeam]=useState(false);
@@ -659,7 +667,7 @@ function StatsTab({players,matches,onUpdate,teamBase,onTeamSave}){
 
   return(
     <div>
-      <STitle action={<button onClick={exportXLSX} style={{...btnS(AMBER),fontSize:13}}>📥 Excel</button>}>Estadísticas</STitle>
+      <STitle action={<div style={{display:"flex",gap:6,alignItems:"center"}}><button onClick={onResetSeason} style={{...btnS(RED),fontSize:11,padding:"8px 12px"}}>🔄 Temporada</button><button onClick={exportXLSX} style={{...btnS(AMBER),fontSize:13}}>📥 Excel</button></div>}>Estadísticas</STitle>
 
       {/* BANNER TOTALES DEL EQUIPO — editable */}
       <div style={{background:`linear-gradient(135deg,${G8},${G7})`,borderRadius:20,boxShadow:"0 4px 20px rgba(0,0,0,.35)",padding:16,marginBottom:12}}>
